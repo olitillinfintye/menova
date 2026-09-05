@@ -102,42 +102,13 @@ export function DeviceShowcase({
   children,
 }: DeviceShowcaseProps) {
   const [device, setDevice] = useState<Device>("browser");
-  const [playing, setPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  // The `autoplay` attribute is ignored when React attaches `src` after the
+  // element is created, so kick playback explicitly.
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    video.addEventListener("play", onPlay);
-    video.addEventListener("pause", onPause);
-
-    // Honour reduced-motion: show the first frame instead of autoplaying.
-    // Otherwise kick playback explicitly, since the `autoplay` attribute is
-    // ignored when React attaches `src` after the element is created.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      video.pause();
-    } else {
-      video.play().catch(() => undefined);
-    }
-
-    return () => {
-      video.removeEventListener("play", onPlay);
-      video.removeEventListener("pause", onPause);
-    };
+    videoRef.current?.play().catch(() => undefined);
   }, []);
-
-  const togglePlayback = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) {
-      video.play().catch(() => undefined);
-    } else {
-      video.pause();
-    }
-  };
 
   const meta = DEVICES[device];
   const portrait = device === "mobile";
@@ -288,25 +259,6 @@ export function DeviceShowcase({
               </div>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={togglePlayback}
-            aria-pressed={playing}
-            aria-label={playing ? "Pause preview" : "Play preview"}
-            className="ring-focus absolute top-1/2 left-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition group-hover:opacity-100 hover:bg-black/60 focus-visible:opacity-100 data-[paused=true]:opacity-100"
-            data-paused={!playing}
-          >
-            {playing ? (
-              <Icon>
-                <path d="M9 5v14M15 5v14" />
-              </Icon>
-            ) : (
-              <Icon>
-                <path d="M8 5v14l11-7L8 5Z" />
-              </Icon>
-            )}
-          </button>
         </div>
       </div>
 
