@@ -57,7 +57,7 @@ See [`.env.example`](.env.example). The ones that matter most:
 
 ## Upload pipeline
 
-The 30MB ceiling is enforced in three places, because any single one can be
+The 100MB ceiling is enforced in three places, because any single one can be
 bypassed:
 
 1. **Browser** — `file.size` is checked before `upload()` runs, so an oversized

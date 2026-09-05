@@ -3,8 +3,8 @@
  * code, so it must stay free of any Node-only imports.
  */
 
-/** Hard ceiling for a single model upload: 30MB. */
-export const MAX_FILE_BYTES = 30 * 1024 * 1024;
+/** Hard ceiling for a single model upload: 100MB. */
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 /** Model containers the platform accepts. */
 export type ModelFormat = "glb" | "fbx" | "skp";

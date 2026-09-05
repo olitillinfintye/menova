@@ -74,7 +74,7 @@ function parseClientPayload(raw: string | null): UploadClientPayload {
  * Implements the two-phase Vercel Blob client-upload protocol:
  *
  *  1. The browser asks for a short-lived client token. We authenticate the
- *     caller, enforce the format + 30MB rules and mint the project id.
+ *     caller, enforce the format + 100MB rules and mint the project id.
  *  2. The browser streams the file straight to Blob storage (bypassing the
  *     4.5MB serverless request body limit), then Blob calls this same route
  *     back with `type: "blob.upload-completed"` so we can persist metadata.
