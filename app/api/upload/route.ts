@@ -105,7 +105,7 @@ export async function POST(request: Request): Promise<Response> {
         if (!isSupportedModelFilename(pathname)) {
           throw new ApiError(
             "invalid_file_type",
-            `Only ${ALLOWED_EXTENSIONS.join(", ")} files can be uploaded to Menova Studio.`,
+            `Only ${ALLOWED_EXTENSIONS.join(", ")} files can be uploaded to Menova Studios.`,
           );
         }
 

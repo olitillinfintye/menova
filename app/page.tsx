@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { DeviceShowcase } from "@/app/components/DeviceShowcase";
 import { FormatBadge } from "@/app/components/FormatBadge";
-import { LogoMark } from "@/app/components/Logo";
+import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import { Arrow, SiteNav } from "@/app/components/SiteNav";
 import { MAX_FILE_BYTES, MODEL_FORMATS, type ModelFormat, formatBytes } from "@/lib/constants";
 
@@ -350,19 +350,19 @@ export default function HomePage() {
 
           {/* ------------------------------ CTA ----------------------------- */}
           <section className="pb-24">
-            <div className="relative overflow-hidden rounded-[2rem] bg-[var(--color-accent)] px-6 py-16 text-center text-white sm:px-12 sm:py-20">
+            <div className="relative overflow-hidden rounded-[2rem] bg-[var(--color-paper)] px-6 py-16 text-center text-[var(--color-navy)] sm:px-12 sm:py-20">
               <div
                 aria-hidden="true"
-                className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgb(255_255_255_/_0.25),transparent_60%)]"
+                className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgb(201_150_42_/_0.28),transparent_60%)]"
               />
               <div className="relative">
-                <LogoMark className="mx-auto h-12 w-12" />
+                <LogoMark className="mx-auto h-14 w-14" />
                 <h2 className="font-display mt-6 text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl">
                   Close the imagination gap
                   <br />
                   on your next project.
                 </h2>
-                <p className="mx-auto mt-4 max-w-md text-base text-white/80">
+                <p className="mx-auto mt-4 max-w-md text-base text-[var(--color-navy-muted)]">
                   Every step of your visualisation needs in one place.
                 </p>
                 <Link
@@ -380,7 +380,7 @@ export default function HomePage() {
         <footer className="relative border-t border-white/10">
           <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 md:grid-cols-[1.4fr_1fr_1fr]">
             <div>
-              <LogoMark className="h-9 w-9" />
+              <LogoLockup className="h-12 w-auto" />
               <p className="mt-4 max-w-xs text-sm leading-relaxed text-[var(--color-muted)]">
                 Web-based architectural visualisation. Upload a model, share a link, walk the space
                 on desktop, mobile or Meta Quest.
@@ -423,7 +423,7 @@ export default function HomePage() {
             </div>
           </div>
           <div className="mx-auto max-w-6xl px-5 pb-8 text-xs text-[var(--color-muted)] sm:px-8">
-            © {new Date().getFullYear()} Menova Studio. Built for architects who present in real spaces.
+            © {new Date().getFullYear()} Menova Studios. Built for architects who present in real spaces.
           </div>
         </footer>
       </div>

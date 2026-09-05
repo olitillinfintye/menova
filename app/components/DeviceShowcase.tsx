@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { LogoMark } from "@/app/components/Logo";
+import { LogoLockup } from "@/app/components/Logo";
 
 type Device = "headset" | "tablet" | "browser" | "mobile";
 
@@ -148,7 +148,7 @@ export function DeviceShowcase({
     <div>
       {/* ------------------------------ frame ------------------------------ */}
       <div
-        className={`relative mx-auto border-[var(--color-accent)] bg-[var(--color-canvas)] shadow-[0_0_0_1px_rgb(139_92_246_/_0.35),0_40px_120px_-40px_rgb(139_92_246_/_0.7)] transition-[max-width,border-radius,padding] ${morph} ${meta.frame}`}
+        className={`relative mx-auto border-[var(--color-accent)] bg-[var(--color-canvas)] shadow-[0_0_0_1px_rgb(201_150_42_/_0.35),0_40px_120px_-40px_rgb(201_150_42_/_0.6)] transition-[max-width,border-radius,padding] ${morph} ${meta.frame}`}
       >
         {/* Headset straps: slide out from behind the visor. */}
         {(["left", "right"] as const).map((side) => (
@@ -247,7 +247,7 @@ export function DeviceShowcase({
                 </HudButton>
               </div>
               <span className="flex items-center gap-1.5 rounded-md bg-black/35 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur">
-                Powered by <LogoMark className="h-3.5 w-3.5" /> <span className="font-display font-bold">menova</span>
+                Powered by <LogoLockup className="h-3.5 w-auto" />
               </span>
             </div>
 

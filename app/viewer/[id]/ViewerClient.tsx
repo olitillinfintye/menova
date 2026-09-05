@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ViewerApi, XrSessionMode } from "@/app/viewer/[id]/ViewerCanvas";
 import { FormatBadge } from "@/app/components/FormatBadge";
-import { LogoMark } from "@/app/components/Logo";
+import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import type { InputMode, PresentationMode } from "@/src/needle/ArchPresentationCore";
 import { MODEL_FORMATS, type ModelFormat, getModelFormat } from "@/lib/constants";
 import type { Project } from "@/lib/types";
@@ -45,8 +45,8 @@ function SketchUpNotice({ project }: ViewerClientProps) {
 
       <div className="card animate-fade-up w-full max-w-lg rounded-[2rem] p-8 sm:p-10">
         <div className="flex items-center justify-between">
-          <Link href="/" className="ring-focus rounded-lg" aria-label="Menova Studio home">
-            <LogoMark />
+          <Link href="/" className="ring-focus rounded-lg" aria-label="Menova Studios home">
+            <LogoLockup className="h-9 w-auto" />
           </Link>
           <FormatBadge format="skp" />
         </div>
@@ -312,7 +312,7 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
                   aria-pressed={mode === option.value}
                   className={`ring-focus rounded-xl px-3.5 py-2 text-xs font-semibold transition disabled:opacity-50 ${
                     mode === option.value
-                      ? "accent-gradient text-white shadow-[0_6px_18px_-6px_rgb(139_92_246_/_0.9)]"
+                      ? "accent-gradient text-white shadow-[0_6px_18px_-6px_rgb(201_150_42_/_0.9)]"
                       : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
                   }`}
                 >

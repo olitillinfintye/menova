@@ -1,28 +1,45 @@
+import Image from "next/image";
 import Link from "next/link";
+
+type Tone = "dark" | "light";
 
 interface LogoProps {
   className?: string;
-  /** Hide the wordmark and render the mark only. */
+  /** Render the swoosh mark only. */
   compact?: boolean;
-  /** Navy-on-light variant for the landing hero. */
-  tone?: "dark" | "light";
+  /** `light` = black wordmark for light backgrounds; `dark` = white wordmark for navy. */
+  tone?: Tone;
 }
 
-/** Chevron-roof mark: a folded plan sheet that reads as a house gable. */
-export function LogoMark({
-  className = "h-8 w-8",
-  tone = "dark",
-}: {
-  className?: string;
-  tone?: "dark" | "light";
-}) {
-  const primary = tone === "light" ? "#1b1b3f" : "#f4f3fb";
+/** Intrinsic sizes of the generated brand assets in public/brand. */
+const LOCKUP = { width: 1293, height: 558 };
+const MARK = { width: 293, height: 294 };
+
+/** Gold swoosh from the Menova Studios logo. */
+export function LogoMark({ className = "h-8 w-8" }: { className?: string; tone?: Tone }) {
   return (
-    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true" className={className}>
-      <path d="M4 26V12l12-8 12 8v14H4Z" fill={primary} />
-      <path d="M4 26V12l12-8v22H4Z" fill="#8b5cf6" />
-      <path d="M11 26v-8h10v8" fill={tone === "light" ? "#f7f6fb" : "#16163a"} />
-    </svg>
+    <Image
+      src="/brand/menova-mark.png"
+      alt=""
+      aria-hidden="true"
+      width={MARK.width}
+      height={MARK.height}
+      className={`object-contain ${className}`}
+    />
+  );
+}
+
+/** Full "MENNOVA STUDIOS" lockup, transparent, in the requested tone. */
+export function LogoLockup({ className = "h-9 w-auto", tone = "dark" }: { className?: string; tone?: Tone }) {
+  return (
+    <Image
+      src={tone === "light" ? "/brand/menova-lockup-light.png" : "/brand/menova-lockup-dark.png"}
+      alt="Menova Studios"
+      width={LOCKUP.width}
+      height={LOCKUP.height}
+      priority
+      className={`object-contain ${className}`}
+    />
   );
 }
 
@@ -30,19 +47,10 @@ export function Logo({ className = "", compact = false, tone = "dark" }: LogoPro
   return (
     <Link
       href="/"
-      className={`ring-focus inline-flex items-center gap-2.5 rounded-lg ${className}`}
-      aria-label="Menova Studio home"
+      className={`ring-focus inline-flex items-center rounded-lg ${className}`}
+      aria-label="Menova Studios home"
     >
-      <LogoMark tone={tone} />
-      {!compact && (
-        <span
-          className={`font-display text-[19px] font-bold tracking-tight ${
-            tone === "light" ? "text-[var(--color-navy)]" : "text-[var(--color-ink)]"
-          }`}
-        >
-          menova
-        </span>
-      )}
+      {compact ? <LogoMark /> : <LogoLockup tone={tone} className="h-11 w-auto sm:h-12" />}
     </Link>
   );
 }

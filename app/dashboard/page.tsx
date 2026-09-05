@@ -122,7 +122,7 @@ export default function DashboardPage() {
       if (!format) {
         setModal({
           title: "Unsupported file type",
-          message: `Menova Studio accepts ${FORMAT_LIST} models. "${file.name}" was rejected.`,
+          message: `Menova Studios accepts ${FORMAT_LIST} models. "${file.name}" was rejected.`,
         });
         return;
       }
@@ -314,7 +314,7 @@ export default function DashboardPage() {
           >
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgb(139_92_246_/_0.28),transparent_60%)] transition-opacity duration-300 ${
+              className={`pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgb(201_150_42_/_0.28),transparent_60%)] transition-opacity duration-300 ${
                 isDragging || uploading ? "opacity-100" : "opacity-0"
               }`}
             />

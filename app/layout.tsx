@@ -25,8 +25,8 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Menova Studio — Architectural spaces, one link away",
-    template: "%s · Menova Studio",
+    default: "Menova Studios — Architectural spaces, one link away",
+    template: "%s · Menova Studios",
   },
   description:
     "Web-based architectural visualisation: upload a .glb, .fbx or .skp model, share a link, and walk through it on desktop, mobile or Meta Quest.",
