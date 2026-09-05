@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ViewerApi, XrSessionMode } from "@/app/viewer/[id]/ViewerCanvas";
+import { HotspotEditor } from "@/app/viewer/[id]/HotspotEditor";
 import { FormatBadge } from "@/app/components/FormatBadge";
 import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import type { InputMode, PresentationMode } from "@/src/needle/ArchPresentationCore";
 import { MODEL_FORMATS, type ModelFormat, getModelFormat } from "@/lib/constants";
-import type { Project } from "@/lib/types";
+import type { Hotspot, Project } from "@/lib/types";
 
 // three.js, the loaders and the XR layer all touch `window` at module scope,
 // so the whole canvas is client-only.
@@ -18,13 +19,15 @@ const ViewerCanvas = dynamic(() => import("@/app/viewer/[id]/ViewerCanvas"), {
 });
 
 interface ViewerClientProps {
-  project: Pick<Project, "id" | "title" | "blobUrl" | "blobPathname">;
+  project: Pick<Project, "id" | "title" | "blobUrl" | "blobPathname" | "hotspots">;
+  /** Opens the hotspot editor (builder link with `?edit=1`). */
+  editable?: boolean;
 }
 
 const INPUT_HINTS: Record<InputMode, string> = {
-  desktop: "WASD to walk · click to look · Shift to sprint",
-  touch: "Drag left to walk · drag right to look",
-  controllers: "Hold the trigger and release on a floor to teleport",
+  desktop: "WASD to walk · click to look · click a marker to go there",
+  touch: "Drag left to walk · drag right to look · tap a marker to go there",
+  controllers: "Left stick walks · right stick turns · trigger on a floor or marker to teleport",
   hands: "Turn your left palm toward you, then pinch a button",
 };
 
@@ -95,19 +98,19 @@ function SketchUpNotice({ project }: ViewerClientProps) {
   );
 }
 
-export default function ViewerClient({ project }: ViewerClientProps) {
+export default function ViewerClient({ project, editable = false }: ViewerClientProps) {
   const format = getModelFormat(project.blobPathname) ?? "glb";
 
   if (format === "skp") return <SketchUpNotice project={project} />;
 
-  return <InteractiveViewer project={project} format={format} />;
+  return <InteractiveViewer project={project} format={format} editable={editable} />;
 }
 
 interface InteractiveViewerProps extends ViewerClientProps {
   format: Exclude<ModelFormat, "skp">;
 }
 
-function InteractiveViewer({ project, format }: InteractiveViewerProps) {
+function InteractiveViewer({ project, format, editable = false }: InteractiveViewerProps) {
   const [api, setApi] = useState<ViewerApi | null>(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<number | null>(0);
@@ -118,7 +121,13 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
   const [xrSupport, setXrSupport] = useState({ vr: false, ar: false });
   const [presenting, setPresenting] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [hotspots, setHotspots] = useState<Hotspot[]>(project.hotspots);
+  const [editing, setEditing] = useState(editable);
+  const [activeHotspot, setActiveHotspot] = useState<string | null>(null);
+  const [placed, setPlaced] = useState(false);
 
+  const arOverlayRef = useRef<HTMLDivElement>(null);
+  const arControlsRef = useRef<HTMLDivElement>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showNotice = useCallback((message: string) => {
@@ -130,6 +139,22 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
   useEffect(() => () => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
   }, []);
+
+  // Keep the 3D markers in step with the (possibly unsaved) list.
+  useEffect(() => {
+    api?.setHotspots(hotspots);
+  }, [api, hotspots]);
+
+  // Taps on the AR HUD buttons must not double as "place the model here".
+  useEffect(() => {
+    const controls = arControlsRef.current;
+    if (!controls) return;
+    const swallow = (event: Event) => event.preventDefault();
+    controls.addEventListener("beforexrselect", swallow);
+    return () => controls.removeEventListener("beforexrselect", swallow);
+  }, [presenting]);
+
+  const arActive = presenting && mode === "ar";
 
   const handleCapture = useCallback(async () => {
     if (!api || capturing) return;
@@ -149,10 +174,14 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
   }, [api, capturing, showNotice]);
 
   const handleEnterXR = useCallback(
-    async (sessionMode: XrSessionMode) => {
+    async (sessionMode: XrSessionMode, presentation?: PresentationMode) => {
       if (!api) return;
       try {
-        await api.enterXR(sessionMode);
+        setPlaced(false);
+        await api.enterXR(sessionMode, {
+          presentation,
+          overlayRoot: presentation === "ar" ? arOverlayRef.current : null,
+        });
       } catch (xrError) {
         showNotice(
           xrError instanceof Error
@@ -164,12 +193,21 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
     [api, showNotice],
   );
 
+  const goTo = useCallback(
+    (hotspot: Hotspot) => {
+      api?.goToHotspot(hotspot);
+      setActiveHotspot(hotspot.id);
+    },
+    [api],
+  );
+
   return (
     <div className="fixed inset-0 overflow-hidden bg-[var(--color-canvas)]">
       <ViewerCanvas
         url={project.blobUrl}
         format={format}
         title={project.title}
+        hotspots={project.hotspots}
         onLoadProgress={setProgress}
         onLoaded={() => setLoading(false)}
         onError={(message) => {
@@ -179,6 +217,8 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
         onNotice={showNotice}
         onModeChange={setMode}
         onInputModeChange={setInputMode}
+        onHotspotSelect={(hotspot) => setActiveHotspot(hotspot.id)}
+        onPlaced={() => setPlaced(true)}
         onXrSupport={setXrSupport}
         onXrPresentingChange={setPresenting}
         onReady={setApi}
@@ -272,10 +312,23 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
             </div>
 
             <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
+              {xrSupport.ar && (
+                <button
+                  type="button"
+                  onClick={() => void handleEnterXR("immersive-ar", "ar")}
+                  disabled={!api}
+                  className={`${OVERLAY_BUTTON} accent-gradient inline-flex items-center gap-2 border-transparent text-white`}
+                >
+                  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                    <path d="M8 2 3 4.5v7L8 14l5-2.5v-7L8 2Zm0 5L3 4.5M8 7l5-2.5M8 7v7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  View in your space
+                </button>
+              )}
               {xrSupport.vr && (
                 <button
                   type="button"
-                  onClick={() => void handleEnterXR("immersive-vr")}
+                  onClick={() => void handleEnterXR("immersive-vr", "walkthrough")}
                   disabled={!api}
                   className={`${OVERLAY_BUTTON} inline-flex items-center gap-2`}
                 >
@@ -286,15 +339,73 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
               {xrSupport.ar && (
                 <button
                   type="button"
-                  onClick={() => void handleEnterXR("immersive-ar")}
+                  onClick={() => void handleEnterXR("immersive-ar", "dollhouse")}
                   disabled={!api}
                   className={OVERLAY_BUTTON}
                 >
                   Mixed Reality · Dollhouse
                 </button>
               )}
+              {editable && (
+                <button
+                  type="button"
+                  onClick={() => setEditing((value) => !value)}
+                  aria-pressed={editing}
+                  className={`${OVERLAY_BUTTON} inline-flex items-center gap-2 ${
+                    editing ? "border-[var(--color-accent)]/70" : ""
+                  }`}
+                >
+                  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                    <path d="M8 14s4.5-3.9 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 10.1 8 14 8 14Zm0-6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {editing ? "Done editing" : "Edit hotspots"}
+                </button>
+              )}
             </div>
           </header>
+
+          {editing && api && (
+            <div className="pointer-events-none absolute top-20 right-4 z-20">
+              <HotspotEditor
+                projectId={project.id}
+                hotspots={hotspots}
+                onChange={setHotspots}
+                getPose={api.getPose}
+                onGoTo={goTo}
+                onSaved={setHotspots}
+                onNotice={showNotice}
+                onClose={() => setEditing(false)}
+              />
+            </div>
+          )}
+
+          {hotspots.length > 0 && !editing && (
+            <nav
+              aria-label="Hotspots"
+              className="pointer-events-none absolute inset-x-0 bottom-20 z-20 flex justify-center px-4"
+            >
+              <div className="glass pointer-events-auto flex max-w-full gap-1 overflow-x-auto rounded-2xl p-1">
+                {hotspots.map((hotspot, index) => (
+                  <button
+                    key={hotspot.id}
+                    type="button"
+                    onClick={() => goTo(hotspot)}
+                    aria-current={activeHotspot === hotspot.id ? "location" : undefined}
+                    className={`ring-focus inline-flex shrink-0 items-center gap-2 rounded-xl py-1.5 pr-3 pl-1.5 text-xs font-semibold transition ${
+                      activeHotspot === hotspot.id
+                        ? "bg-white/10 text-[var(--color-ink)]"
+                        : "text-[var(--color-muted)] hover:bg-white/5 hover:text-[var(--color-ink)]"
+                    }`}
+                  >
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-accent)] font-display text-[10px] font-bold text-[var(--color-navy)]">
+                      {index + 1}
+                    </span>
+                    {hotspot.label}
+                  </button>
+                ))}
+              </div>
+            </nav>
+          )}
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 p-4">
             <div className="glass pointer-events-auto inline-flex overflow-hidden rounded-2xl p-1">
@@ -335,6 +446,66 @@ function InteractiveViewer({ project, format }: InteractiveViewerProps) {
           </div>
         </>
       )}
+
+      {/* ------------------------- AR dom-overlay HUD ------------------------ */}
+      {/* Always mounted: `requestSession` needs the element before AR starts. */}
+      <div
+        ref={arOverlayRef}
+        className={`pointer-events-none absolute inset-0 z-40 flex flex-col justify-between p-4 ${
+          arActive ? "" : "hidden"
+        }`}
+      >
+        <div className="flex justify-center">
+          <p className="glass rounded-2xl px-4 py-2.5 text-center text-xs font-medium text-white">
+            {placed
+              ? "Placed at 1:1. Walk around — the model stays put."
+              : "Point your phone at the floor and tap where the entrance should be."}
+          </p>
+        </div>
+
+        <div ref={arControlsRef} className="pointer-events-auto flex justify-center gap-2">
+          {placed && (
+            <button
+              type="button"
+              onClick={() => {
+                api?.resetPlacement();
+                setPlaced(false);
+              }}
+              className={`${OVERLAY_BUTTON} inline-flex items-center gap-2`}
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v2.6h-2.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Re-place
+            </button>
+          )}
+          {hotspots.length > 0 && placed && (
+            <div className="glass flex max-w-[60vw] gap-1 overflow-x-auto rounded-xl p-1">
+              {hotspots.map((hotspot, index) => (
+                <button
+                  key={hotspot.id}
+                  type="button"
+                  onClick={() => goTo(hotspot)}
+                  title={hotspot.label}
+                  className="ring-focus flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-accent)] font-display text-xs font-bold text-[var(--color-navy)]"
+                >
+                  {index + 1}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => void api?.exitXR()}
+            className={`${OVERLAY_BUTTON} inline-flex items-center gap-2`}
+          >
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="m4 4 8 8m0-8-8 8" strokeLinecap="round" />
+            </svg>
+            Exit AR
+          </button>
+        </div>
+      </div>
 
       {/* ------------------------------ notices ------------------------------ */}
       {notice && (

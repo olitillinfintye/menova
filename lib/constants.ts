@@ -114,3 +114,9 @@ export function buildViewerUrl(projectId: string, origin?: string): string {
     (typeof window !== "undefined" ? window.location.origin : "");
   return `${base.replace(/\/$/, "")}/viewer/${projectId}`;
 }
+
+/** Upper bound on hotspots per project. */
+export const MAX_HOTSPOTS = 40;
+
+/** Longest accepted hotspot label. */
+export const MAX_HOTSPOT_LABEL = 60;

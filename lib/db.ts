@@ -1,7 +1,8 @@
 import { sql } from "@vercel/postgres";
 
 import { ApiError, notFound } from "@/lib/errors";
-import type { Project } from "@/lib/types";
+import { hotspotsFromRow } from "@/lib/hotspots";
+import type { Hotspot, Project } from "@/lib/types";
 
 /** Shape of the `projects` table. */
 interface ProjectRow {
@@ -13,6 +14,7 @@ interface ProjectRow {
   created_at: Date | string;
   owner_id: string;
   upload_ref: string;
+  hotspots: unknown;
 }
 
 function mapRow(row: ProjectRow): Project {
@@ -28,6 +30,7 @@ function mapRow(row: ProjectRow): Project {
         ? row.created_at.toISOString()
         : new Date(row.created_at).toISOString(),
     ownerId: row.owner_id,
+    hotspots: hotspotsFromRow(row.hotspots),
   };
 }
 
@@ -64,6 +67,10 @@ export function ensureSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS projects_owner_created_idx
         ON projects (owner_id, created_at DESC);
     `;
+    await sql`
+      ALTER TABLE projects
+        ADD COLUMN IF NOT EXISTS hotspots JSONB NOT NULL DEFAULT '[]'::jsonb;
+    `;
   })().catch((error) => {
     // Never cache a failed bootstrap: the next request must retry.
     schemaPromise = null;
@@ -77,7 +84,7 @@ export function ensureSchema(): Promise<void> {
 export async function listProjects(ownerId: string): Promise<Project[]> {
   await ensureSchema();
   const { rows } = await sql<ProjectRow>`
-    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref
+    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots
     FROM projects
     WHERE owner_id = ${ownerId}
     ORDER BY created_at DESC
@@ -90,12 +97,29 @@ export async function listProjects(ownerId: string): Promise<Project[]> {
 export async function getProject(id: string): Promise<Project | null> {
   await ensureSchema();
   const { rows } = await sql<ProjectRow>`
-    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref
+    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots
     FROM projects
     WHERE id = ${id}
     LIMIT 1;
   `;
   return rows[0] ? mapRow(rows[0]) : null;
+}
+
+/** Replaces a project's hotspot list. Returns the updated record. */
+export async function updateHotspots(
+  id: string,
+  ownerId: string,
+  hotspots: Hotspot[],
+): Promise<Project> {
+  await ensureSchema();
+  const { rows } = await sql<ProjectRow>`
+    UPDATE projects
+    SET hotspots = ${JSON.stringify(hotspots)}::jsonb
+    WHERE id = ${id} AND owner_id = ${ownerId}
+    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots;
+  `;
+  if (!rows[0]) throw notFound();
+  return mapRow(rows[0]);
 }
 
 export interface CreateProjectInput {
@@ -133,13 +157,13 @@ export async function createProject(
       ${input.uploadRef}
     )
     ON CONFLICT (upload_ref) DO NOTHING
-    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref;
+    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots;
   `;
 
   if (rows[0]) return { project: mapRow(rows[0]), created: true };
 
   const { rows: existing } = await sql<ProjectRow>`
-    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref
+    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots
     FROM projects
     WHERE upload_ref = ${input.uploadRef}
     LIMIT 1;
@@ -162,7 +186,7 @@ export async function deleteProject(
   const { rows } = await sql<ProjectRow>`
     DELETE FROM projects
     WHERE id = ${id} AND owner_id = ${ownerId}
-    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref;
+    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots;
   `;
   if (!rows[0]) throw notFound();
   return mapRow(rows[0]);

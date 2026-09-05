@@ -129,6 +129,18 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
 
           <CopyButton value={viewerUrl} label="Copy link" />
 
+          {interactive && (
+            <Link
+              href={`/viewer/${project.id}?edit=1`}
+              className="ring-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3 py-2 text-xs font-medium text-[var(--color-ink)] transition hover:border-[var(--color-line-strong)] hover:bg-[var(--color-surface-3)]"
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                <path d="M8 14s4.5-3.9 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 10.1 8 14 8 14Zm0-6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Hotspots{project.hotspots.length > 0 ? ` · ${project.hotspots.length}` : ""}
+            </Link>
+          )}
+
           {confirming ? (
             <span className="ml-auto flex items-center gap-1">
               <button

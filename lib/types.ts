@@ -1,8 +1,19 @@
+/**
+ * A named viewpoint inside a model. `position` is the user's feet in the
+ * model's local space (metres), `yaw` the heading in radians.
+ */
+export interface Hotspot {
+  id: string;
+  label: string;
+  position: { x: number; y: number; z: number };
+  yaw: number;
+}
+
 /** A project row as returned by the API. */
 export interface Project {
   id: string;
   title: string;
-  /** Public Vercel Blob URL of the `.glb`. */
+  /** Public Vercel Blob URL of the model file. */
   blobUrl: string;
   /** Blob store pathname, required by `del()` and for auditing. */
   blobPathname: string;
@@ -10,6 +21,7 @@ export interface Project {
   /** ISO-8601 timestamp. */
   createdAt: string;
   ownerId: string;
+  hotspots: Hotspot[];
 }
 
 /** Payload the browser attaches to `upload()` and the server validates. */

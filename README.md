@@ -23,6 +23,7 @@ reality dollhouse mode and 4K render capture.
 | `POST /api/upload`       | Blob client-token handshake + `onUploadCompleted` webhook        |
 | `GET /api/projects`      | Project list for the dashboard                                   |
 | `POST /api/projects`     | Idempotent upload registration (localhost + webhook-race safe)   |
+| `PATCH /api/projects`    | Replaces a project's hotspot list (`{ hotspots }`)               |
 | `DELETE /api/projects`   | Deletes the blob, then the row                                   |
 
 ## Setup
@@ -107,8 +108,34 @@ serves both the Needle scene graph and the standalone viewer.
 | --------------------- | ------ | ----------------- | ------------------------------------- |
 | A — 1:1 walkthrough   | `1.0`  | Virtual skybox    | Floor at `Y=0`                        |
 | B — Dollhouse / MR    | `0.02` | Passthrough       | XR hit-test surface (floor or table)  |
+| C — AR 1:1 (phone)    | `1.0`  | Camera feed       | Tapped floor point = first hotspot    |
 
-Switching tweens scale and position together with an ease-in-out cubic.
+Switching tweens scale and position together with an ease-in-out cubic. The
+loaded file is wrapped in a neutral `Group` whose origin is the footprint centre
+on the floor, so scaling pivots there and FBX unit-normalising scales on the
+file's own root are preserved (`walkScale` is read from the root, not assumed to
+be 1).
+
+### Hotspots
+
+A project stores up to 40 hotspots (`hotspots JSONB` on `projects`), each a feet
+position in model-local metres plus a heading. Builders author them in the
+viewer with `?edit=1` (“Add hotspot here” captures the current pose) and save
+through `PATCH /api/projects`. `src/viewer/Hotspots.ts` renders them as
+billboarded sprites parented to the model root, so they ride along through the
+dollhouse tween and AR placement. Selecting one glides the desktop rig
+(`Locomotion.travelTo`) or teleports the XR rig with the saved yaw; the first
+hotspot doubles as the AR entrance point.
+
+### AR at 1:1 (WebXR on Android Chrome)
+
+**View in your space** requests `immersive-ar` with `hit-test` and
+`dom-overlay`. The model is hidden while a reticle tracks the floor; a tap
+anchors the model so its entry point sits on the reticle, then the user walks the
+building physically. The React HUD is passed as the overlay root, and
+`beforexrselect` is cancelled on its buttons so pressing **Exit AR** never
+doubles as a placement tap. iOS Safari has no WebXR, so the button only appears
+where `isSessionSupported("immersive-ar")` is true.
 
 **Palm menu.** The palm normal is derived geometrically from the wrist, index
 metacarpal and pinky metacarpal joints — `(index − wrist) × (pinky − wrist)` for
@@ -118,10 +145,15 @@ not. When `dot(palmNormal, toCamera) > 0.7` the holographic menu appears above
 the wrist. A pinch (index tip to thumb tip under 2cm, releasing at 3cm) presses
 the button the pinch started on.
 
-**Fallback chain.** Hand tracking → Quest controller ray teleport (hold trigger,
-release over a detected floor) → desktop WASD with pointer-lock look → mobile
-touch, where the left half of the screen is a walk joystick and the right half a
-look pad.
+**Fallback chain.** Hand tracking → Quest controllers (left thumbstick walks
+relative to head yaw, right thumbstick snap-turns 45° around the head, trigger
+ray teleports to a detected floor or selects a hotspot) → desktop WASD with
+pointer-lock look → mobile touch, where the left half of the screen is a walk
+joystick and the right half a look pad.
+
+Hit-test poses arrive in the XR reference space, which is the player rig's local
+frame, so they are mapped through `playerRig.localToWorld` before being used as
+world anchors.
 
 Passthrough requires an `immersive-ar` session: the blend mode is fixed when the
 session is created, so entering through **Enter VR** and then switching to

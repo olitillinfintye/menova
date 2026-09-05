@@ -9,8 +9,15 @@ import {
   isSupportedModelFilename,
 } from "@/lib/constants";
 import { errorResponse, handlePreflight, jsonResponse } from "@/lib/cors";
-import { createProject, deleteProject, getProject, listProjects } from "@/lib/db";
+import {
+  createProject,
+  deleteProject,
+  getProject,
+  listProjects,
+  updateHotspots,
+} from "@/lib/db";
 import { ApiError, invalidRequest, notFound, toApiError } from "@/lib/errors";
+import { parseHotspots } from "@/lib/hotspots";
 import { generateProjectId } from "@/lib/ids";
 import type { ProjectListResponse, ProjectResponse } from "@/lib/types";
 
@@ -103,6 +110,42 @@ export async function POST(request: Request): Promise<Response> {
     const apiError = toApiError(error);
     if (apiError.status >= 500) {
       console.error("[api/projects POST] ", apiError.message, error);
+    }
+    return errorResponse(request, apiError);
+  }
+}
+
+/**
+ * `PATCH /api/projects?id=proj_xxxxxxxx`
+ *
+ * Replaces the project's hotspot list with `{ hotspots: Hotspot[] }`.
+ */
+export async function PATCH(request: Request): Promise<Response> {
+  try {
+    const session = await requireSession(request);
+
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) throw invalidRequest("Missing project id. Use ?id=proj_xxxxxxxx.");
+    if (!isProjectId(id)) throw invalidRequest(`"${id}" is not a valid project id.`);
+
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      throw invalidRequest("Request body must be JSON.");
+    }
+    const hotspots = parseHotspots((raw as { hotspots?: unknown } | null)?.hotspots);
+
+    const existing = await getProject(id);
+    if (!existing) throw notFound();
+    assertOwner(session, existing.ownerId);
+
+    const project = await updateHotspots(id, session.userId, hotspots);
+    return jsonResponse<ProjectResponse>(request, { project });
+  } catch (error) {
+    const apiError = toApiError(error);
+    if (apiError.status >= 500) {
+      console.error("[api/projects PATCH] ", apiError.message, error);
     }
     return errorResponse(request, apiError);
   }

@@ -11,6 +11,8 @@ export interface LocomotionOptions {
   lookSensitivity?: number;
   /** Radians per pixel for touch drag. */
   touchLookSensitivity?: number;
+  /** Return true to keep a mouse press from engaging pointer lock (e.g. a UI hit). */
+  shouldIgnoreMouseDown?: (event: MouseEvent) => boolean;
 }
 
 interface TouchState {
@@ -19,6 +21,19 @@ interface TouchState {
   originY: number;
   currentX: number;
   currentY: number;
+}
+
+interface Travel {
+  fromPosition: Vector3;
+  toPosition: Vector3;
+  fromYaw: number;
+  toYaw: number;
+  duration: number;
+  elapsed: number;
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 }
 
 /**
@@ -38,7 +53,8 @@ export class Locomotion {
   private readonly rig: Object3D;
   private readonly camera: PerspectiveCamera;
   private readonly element: HTMLElement;
-  private readonly options: Required<LocomotionOptions>;
+  private readonly options: Required<Omit<LocomotionOptions, "shouldIgnoreMouseDown">> &
+    Pick<LocomotionOptions, "shouldIgnoreMouseDown">;
 
   private readonly keys = new Set<string>();
   private readonly moveTouches = new Map<number, TouchState>();
@@ -49,6 +65,7 @@ export class Locomotion {
   private pointerLocked = false;
   private enabled = true;
   private disposed = false;
+  private travel: Travel | null = null;
 
   /** Radius of the virtual joystick in CSS pixels. */
   private static readonly JOYSTICK_RADIUS = 70;
@@ -73,6 +90,7 @@ export class Locomotion {
       eyeHeight: options.eyeHeight ?? 1.65,
       lookSensitivity: options.lookSensitivity ?? 0.0022,
       touchLookSensitivity: options.touchLookSensitivity ?? 0.005,
+      shouldIgnoreMouseDown: options.shouldIgnoreMouseDown,
     };
 
     this.yaw = rig.rotation.y;
@@ -96,6 +114,7 @@ export class Locomotion {
 
   /** Places the rig and resets look angles. */
   teleportTo(position: Vector3, yaw?: number): void {
+    this.travel = null;
     this.rig.position.copy(position);
     if (yaw !== undefined) {
       this.yaw = yaw;
@@ -103,11 +122,38 @@ export class Locomotion {
     }
   }
 
+  /** Glides the rig to `position`, turning to `yaw`, over `seconds`. */
+  travelTo(position: Vector3, yaw: number | undefined, seconds = 0.9): void {
+    const toYaw = yaw ?? this.yaw;
+    // Take the short way round so a 350° target does not spin the user.
+    const delta = Math.atan2(Math.sin(toYaw - this.yaw), Math.cos(toYaw - this.yaw));
+    this.travel = {
+      fromPosition: this.rig.position.clone(),
+      toPosition: position.clone(),
+      fromYaw: this.yaw,
+      toYaw: this.yaw + delta,
+      duration: Math.max(0.05, seconds),
+      elapsed: 0,
+    };
+    this.pitch *= 0.5;
+  }
+
+  /** Current feet position and heading, for saving hotspots. */
+  getPose(): { position: Vector3; yaw: number } {
+    return { position: this.rig.position.clone(), yaw: this.yaw };
+  }
+
   /** Advances movement. Call once per frame with the frame delta in seconds. */
   update(deltaSeconds: number): void {
     if (!this.enabled || this.disposed) return;
 
     const dt = MathUtils.clamp(deltaSeconds, 0, 0.1); // ignore tab-switch spikes
+
+    if (this.travel) {
+      this.advanceTravel(dt);
+      this.applyRotation();
+      return;
+    }
 
     this.applyTouchLook(dt);
 
@@ -145,6 +191,16 @@ export class Locomotion {
   }
 
   // ---------------------------------------------------------------- internal
+
+  private advanceTravel(dt: number): void {
+    const travel = this.travel;
+    if (!travel) return;
+    travel.elapsed += dt;
+    const t = easeInOutCubic(Math.min(1, travel.elapsed / travel.duration));
+    this.rig.position.lerpVectors(travel.fromPosition, travel.toPosition, t);
+    this.yaw = travel.fromYaw + (travel.toYaw - travel.fromYaw) * t;
+    if (travel.elapsed >= travel.duration) this.travel = null;
+  }
 
   private applyRotation(): void {
     this.rig.rotation.y = this.yaw;
@@ -243,6 +299,9 @@ export class Locomotion {
     const target = event.target as HTMLElement | null;
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
 
+    // Any movement key cancels an in-flight hotspot glide.
+    this.travel = null;
+
     this.keys.add(event.code.toLowerCase());
     if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
       event.preventDefault();
@@ -260,6 +319,7 @@ export class Locomotion {
 
   private readonly onMouseDown = (event: MouseEvent) => {
     if (!this.enabled || event.button !== 0) return;
+    if (this.options.shouldIgnoreMouseDown?.(event)) return;
     if (document.pointerLockElement !== this.element) {
       void this.element.requestPointerLock?.();
     }
@@ -285,6 +345,7 @@ export class Locomotion {
 
   private readonly onTouchStart = (event: TouchEvent) => {
     if (!this.enabled) return;
+    this.travel = null;
     const midpoint = this.element.clientWidth / 2;
 
     for (const touch of Array.from(event.changedTouches)) {

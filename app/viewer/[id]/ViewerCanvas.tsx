@@ -26,7 +26,9 @@ import {
 import { CaptureError, captureHighResolutionPng } from "@/src/viewer/capture";
 import { Locomotion } from "@/src/viewer/Locomotion";
 import { ModelLoadError, loadModel } from "@/src/viewer/loadModel";
+import { HotspotLayer } from "@/src/viewer/Hotspots";
 import type { ModelFormat } from "@/lib/constants";
+import type { Hotspot } from "@/lib/types";
 import {
   centerModel,
   createLighting,
@@ -37,19 +39,35 @@ import {
 
 export type XrSessionMode = "immersive-vr" | "immersive-ar";
 
+export interface EnterXrOptions {
+  /** Mode to open in. Defaults to walkthrough for VR and dollhouse for AR. */
+  presentation?: PresentationMode;
+  /** DOM element kept visible over the camera feed on phones (`dom-overlay`). */
+  overlayRoot?: HTMLElement | null;
+}
+
 /** Imperative handle handed to the overlay UI once the scene is live. */
 export interface ViewerApi {
   capture4K: () => Promise<void>;
   setMode: (mode: PresentationMode) => void;
   toggleMode: () => void;
-  enterXR: (mode: XrSessionMode) => Promise<void>;
+  enterXR: (mode: XrSessionMode, options?: EnterXrOptions) => Promise<void>;
   exitXR: () => Promise<void>;
+  /** Replaces the rendered hotspot markers. */
+  setHotspots: (hotspots: Hotspot[]) => void;
+  /** Glides (desktop) or teleports (XR) to a hotspot. */
+  goToHotspot: (hotspot: Hotspot) => void;
+  /** Current feet position in model-local space plus heading, for authoring. */
+  getPose: () => { position: { x: number; y: number; z: number }; yaw: number };
+  /** Forget the AR anchor so the next tap re-places the model. */
+  resetPlacement: () => void;
 }
 
 export interface ViewerCanvasProps {
   url: string;
   format: ModelFormat;
   title: string;
+  hotspots: Hotspot[];
   /** 0..100 while downloading, or `null` when the size is unknown. */
   onLoadProgress: (percentage: number | null) => void;
   onLoaded: () => void;
@@ -57,6 +75,8 @@ export interface ViewerCanvasProps {
   onNotice: (message: string) => void;
   onModeChange: (mode: PresentationMode) => void;
   onInputModeChange: (mode: InputMode) => void;
+  onHotspotSelect: (hotspot: Hotspot) => void;
+  onPlaced: () => void;
   onXrSupport: (support: { vr: boolean; ar: boolean }) => void;
   onXrPresentingChange: (presenting: boolean) => void;
   onReady: (api: ViewerApi) => void;
@@ -166,7 +186,12 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
     playerRig.add(camera);
     scene.add(playerRig);
 
-    const locomotion = new Locomotion(playerRig, camera, canvas);
+    let hotspotLayer: HotspotLayer | null = null;
+    const locomotion = new Locomotion(playerRig, camera, canvas, {
+      // A click on a marker travels there instead of grabbing the pointer.
+      shouldIgnoreMouseDown: (event) =>
+        hotspotLayer?.pickAt(event.clientX, event.clientY) !== null,
+    });
 
     let lighting: ReturnType<typeof createLighting> | null = null;
     let presentation: ArchPresentationCore | null = null;
@@ -203,6 +228,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
 
       locomotion.update(delta);
       presentation?.update(delta, renderer.xr.getFrame() ?? null);
+      hotspotLayer?.update(document.pointerLockElement === canvas);
       renderer.render(scene, camera);
     });
 
@@ -213,7 +239,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
       if (currentSession) await currentSession.end().catch(() => undefined);
     };
 
-    const enterXR = async (mode: XrSessionMode) => {
+    const enterXR = async (mode: XrSessionMode, options: EnterXrOptions = {}) => {
       if (!navigator.xr) throw new Error("This browser does not support WebXR.");
       if (currentSession) await endSession();
 
@@ -223,11 +249,13 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
         "hand-tracking",
         "layers",
         ...(mode === "immersive-ar" ? ["hit-test", "plane-detection", "anchors"] : []),
+        ...(options.overlayRoot ? ["dom-overlay"] : []),
       ];
 
       const session = await navigator.xr.requestSession(mode, {
         requiredFeatures: ["local-floor"],
         optionalFeatures,
+        ...(options.overlayRoot ? { domOverlay: { root: options.overlayRoot } } : {}),
       });
 
       currentSession = session;
@@ -239,8 +267,11 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
       await renderer.xr.setSession(session);
       propsRef.current.onXrPresentingChange(true);
 
-      // Mixed reality opens straight into the miniature; VR into 1:1.
-      presentation?.setMode(mode === "immersive-ar" ? "dollhouse" : "walkthrough");
+      // Mixed reality defaults to the miniature; VR to 1:1.
+      presentation?.setMode(
+        options.presentation ?? (mode === "immersive-ar" ? "dollhouse" : "walkthrough"),
+        true,
+      );
     };
 
     void (async () => {
@@ -269,10 +300,18 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
           return;
         }
 
-        modelRoot = loaded;
+        // A neutral wrapper keeps hotspot coordinates in metres even when the
+        // loader put a unit-normalising scale on the file's own root.
+        modelRoot = new Group();
         modelRoot.name = title || "Model";
+        modelRoot.add(loaded);
 
         const bounds = centerModel(modelRoot);
+        // Bake the centring offset into the child so the wrapper's origin is the
+        // footprint centre on the floor; scaling and AR placement pivot there.
+        loaded.position.add(modelRoot.position);
+        modelRoot.position.set(0, 0, 0);
+        modelRoot.updateMatrixWorld(true);
         enableShadows(modelRoot);
         scene.add(modelRoot);
 
@@ -291,6 +330,18 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
         const start = new Vector3(0, 0, Math.max(bounds.radius * 1.15, 2.5));
         locomotion.teleportTo(start, 0);
 
+        const root = modelRoot;
+        hotspotLayer = new HotspotLayer({
+          modelRoot: root,
+          camera,
+          element: canvas,
+          onSelect: (hotspot) => {
+            presentation?.goToHotspot(hotspot);
+            propsRef.current.onHotspotSelect(hotspot);
+          },
+        });
+        hotspotLayer.setHotspots(propsRef.current.hotspots);
+
         presentation = new ArchPresentationCore({
           renderer,
           scene,
@@ -299,11 +350,26 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
           modelRoot,
           teleportSurfaces: teleportMeshes,
           locomotion,
+          hotspots: hotspotLayer,
           environment: sky,
-          onModeChange: (mode) => propsRef.current.onModeChange(mode),
+          onModeChange: (mode) => {
+            // Markers would dwarf the 1:50 miniature.
+            hotspotLayer?.setVisible(mode !== "dollhouse");
+            propsRef.current.onModeChange(mode);
+          },
           onInputModeChange: (mode) => propsRef.current.onInputModeChange(mode),
+          onHotspotSelect: (hotspot) => propsRef.current.onHotspotSelect(hotspot),
+          onPlaced: () => propsRef.current.onPlaced(),
           onNotice: (message) => propsRef.current.onNotice(message),
         });
+
+        const applyEntryPoint = (hotspots: Hotspot[]) => {
+          const entry = hotspots[0]?.position;
+          presentation?.setEntryPoint(
+            entry ? new Vector3(entry.x, entry.y, entry.z) : new Vector3(0, 0, 0),
+          );
+        };
+        applyEntryPoint(propsRef.current.hotspots);
 
         const api: ViewerApi = {
           capture4K: async () => {
@@ -324,6 +390,24 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
           toggleMode: () => presentation?.toggleMode(),
           enterXR,
           exitXR: endSession,
+          setHotspots: (hotspots) => {
+            hotspotLayer?.setHotspots(hotspots);
+            applyEntryPoint(hotspots);
+          },
+          goToHotspot: (hotspot) => presentation?.goToHotspot(hotspot),
+          getPose: () => {
+            const { position, yaw } = locomotion.getPose();
+            const local = root.worldToLocal(position);
+            return {
+              position: {
+                x: Number(local.x.toFixed(3)),
+                y: Number(local.y.toFixed(3)),
+                z: Number(local.z.toFixed(3)),
+              },
+              yaw: Number(yaw.toFixed(4)),
+            };
+          },
+          resetPlacement: () => presentation?.resetPlacement(),
         };
 
         propsRef.current.onReady(api);
@@ -350,6 +434,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
       canvas.removeEventListener("webglcontextlost", onContextLost);
 
       presentation?.dispose();
+      hotspotLayer?.dispose();
       locomotion.dispose();
       lighting?.dispose();
 

@@ -20,10 +20,17 @@ import {
   type WebGLRenderer,
 } from "three";
 
+import type { Hotspot } from "@/lib/types";
+import type { HotspotLayer } from "@/src/viewer/Hotspots";
 import type { Locomotion } from "@/src/viewer/Locomotion";
 
-/** Presentation modes required by the Quest experience. */
-export type PresentationMode = "walkthrough" | "dollhouse";
+/**
+ * Presentation modes.
+ *  - `walkthrough`: 1:1, virtual skybox, teleport/thumbstick locomotion.
+ *  - `dollhouse`: 1:50 miniature on a real surface (passthrough).
+ *  - `ar`: 1:1 anchored to a real floor via hit-test; the user walks physically.
+ */
+export type PresentationMode = "walkthrough" | "dollhouse" | "ar";
 
 /** How the user is currently driving the scene. */
 export type InputMode = "hands" | "controllers" | "desktop" | "touch";
@@ -42,14 +49,20 @@ export interface ArchPresentationOptions {
   locomotion?: Locomotion | null;
   /** Skybox restored when walkthrough mode is active. */
   environment?: Texture | Color | null;
-  /** Scale for Mode B. Defaults to 0.02 (1:50). */
+  /** Clickable hotspot markers, selectable with the controller ray. */
+  hotspots?: HotspotLayer | null;
+  /** Scale for Mode B, relative to the walkthrough scale. Defaults to 0.02 (1:50). */
   dollhouseScale?: number;
-  /** Scale for Mode A. Defaults to 1.0 (1:1). */
+  /** Scale for Mode A. Defaults to the model root's current scale. */
   walkScale?: number;
   /** Duration of the mode tween in seconds. */
   transitionSeconds?: number;
   onModeChange?: (mode: PresentationMode) => void;
   onInputModeChange?: (mode: InputMode) => void;
+  /** Fired when a hotspot is picked with an XR controller. */
+  onHotspotSelect?: (hotspot: Hotspot) => void;
+  /** Fired when the AR model has been (re)placed on a real surface. */
+  onPlaced?: () => void;
   /** Surfaced to the UI for non-fatal issues (missing hit-test, etc). */
   onNotice?: (message: string) => void;
 }
@@ -58,6 +71,15 @@ const PINCH_ENGAGE_METRES = 0.02;
 const PINCH_RELEASE_METRES = 0.03;
 const PALM_FACING_DOT = 0.7;
 const BUTTON_HIT_RADIUS = 0.045;
+
+/** Thumbstick smooth locomotion, metres per second at full deflection. */
+const STICK_WALK_SPEED = 2.2;
+/** Dead zone below which a stick reads as centred. */
+const STICK_DEAD_ZONE = 0.25;
+/** Snap turn increment. */
+const SNAP_TURN_RADIANS = Math.PI / 4;
+/** Right-stick deflection that triggers a snap turn. */
+const SNAP_TURN_THRESHOLD = 0.6;
 
 /** Joints used to derive the palm plane. */
 const WRIST = "wrist";
@@ -117,11 +139,14 @@ export class ArchPresentationCore {
   private readonly teleportSurfaces: Mesh[];
   private readonly locomotion: Locomotion | null;
   private readonly environment: Texture | Color | null;
+  private readonly hotspots: HotspotLayer | null;
   private readonly dollhouseScale: number;
   private readonly walkScale: number;
   private readonly transitionSeconds: number;
   private readonly onModeChange?: (mode: PresentationMode) => void;
   private readonly onInputModeChange?: (mode: InputMode) => void;
+  private readonly onHotspotSelect?: (hotspot: Hotspot) => void;
+  private readonly onPlaced?: () => void;
   private readonly onNotice?: (message: string) => void;
 
   private mode: PresentationMode = "walkthrough";
@@ -141,6 +166,18 @@ export class ArchPresentationCore {
   private readonly dollhouseAnchorPosition = new Vector3(0, 0.9, -0.6);
   private dollhouseAnchorFromHitTest = false;
 
+  // ---- AR 1:1 placement
+  /** Model-local point that lands on the tapped surface (a doorway, say). */
+  private readonly entryPoint = new Vector3();
+  /** Model position while in AR mode; starts wherever the walkthrough left it. */
+  private readonly arAnchorPosition = new Vector3();
+  private placementReticle: Mesh | null = null;
+  private reticlePoint: Vector3 | null = null;
+  private arPlaced = false;
+
+  // ---- thumbsticks
+  private snapTurnArmed = true;
+
   // ---- hands
   private readonly hands: HandState[] = [];
   private menu: Group | null = null;
@@ -152,6 +189,7 @@ export class ArchPresentationCore {
   private readonly controllerSelecting = new Set<XRControllerLike>();
   private teleportMarker: Mesh | null = null;
   private teleportPoint: Vector3 | null = null;
+  private hoveredHotspot: Hotspot | null = null;
   private readonly raycaster = new Raycaster();
 
   // ---- XR hit test
@@ -178,14 +216,19 @@ export class ArchPresentationCore {
     this.teleportSurfaces = options.teleportSurfaces;
     this.locomotion = options.locomotion ?? null;
     this.environment = options.environment ?? null;
-    this.dollhouseScale = options.dollhouseScale ?? 0.02;
-    this.walkScale = options.walkScale ?? 1.0;
+    this.hotspots = options.hotspots ?? null;
+    // FBX exports carry a unit-normalising scale on the root; honour it.
+    this.walkScale = options.walkScale ?? options.modelRoot.scale.x;
+    this.dollhouseScale = this.walkScale * (options.dollhouseScale ?? 0.02);
     this.transitionSeconds = Math.max(0.05, options.transitionSeconds ?? 0.9);
     this.onModeChange = options.onModeChange;
     this.onInputModeChange = options.onInputModeChange;
+    this.onHotspotSelect = options.onHotspotSelect;
+    this.onPlaced = options.onPlaced;
     this.onNotice = options.onNotice;
 
     this.walkAnchorPosition.copy(this.modelRoot.position);
+    this.arAnchorPosition.copy(this.modelRoot.position);
     this.toPosition.copy(this.walkAnchorPosition);
     this.fromPosition.copy(this.walkAnchorPosition);
     this.fromScale = this.walkScale;
@@ -195,6 +238,7 @@ export class ArchPresentationCore {
     this.setupControllers();
     this.buildWristMenu();
     this.buildTeleportMarker();
+    this.buildPlacementReticle();
 
     this.renderer.xr.addEventListener("sessionstart", this.onSessionStart);
     this.renderer.xr.addEventListener("sessionend", this.onSessionEnd);
@@ -222,14 +266,34 @@ export class ArchPresentationCore {
     this.fromScale = this.modelRoot.scale.x;
 
     if (mode === "dollhouse") {
+      if (!this.dollhouseAnchorFromHitTest) {
+        // No real surface yet: float the miniature a metre ahead, waist height.
+        this.camera.getWorldDirection(this.vecA);
+        this.vecA.y = 0;
+        if (this.vecA.lengthSq() > 1e-6) this.vecA.normalize();
+        this.camera.getWorldPosition(this.dollhouseAnchorPosition);
+        this.dollhouseAnchorPosition.addScaledVector(this.vecA, 2.2);
+        this.dollhouseAnchorPosition.y -= 0.8;
+      }
       this.toPosition.copy(this.dollhouseAnchorPosition);
       this.toScale = this.dollhouseScale;
+      this.setPassthrough(true);
+    } else if (mode === "ar") {
+      this.toPosition.copy(this.arAnchorPosition);
+      this.toScale = this.walkScale;
+      this.arPlaced = false;
+      // Nothing to look at until the user picks a floor point.
+      this.modelRoot.visible = false;
       this.setPassthrough(true);
     } else {
       this.toPosition.copy(this.walkAnchorPosition);
       this.toScale = this.walkScale;
       this.setPassthrough(false);
     }
+    if (mode !== "ar") this.modelRoot.visible = true;
+
+    if (this.placementReticle) this.placementReticle.visible = false;
+    this.reticlePoint = null;
 
     this.transitionProgress = immediate ? 1 : 0;
     if (immediate) this.applyTransform(1);
@@ -239,6 +303,57 @@ export class ArchPresentationCore {
 
   toggleMode(): void {
     this.setMode(this.mode === "walkthrough" ? "dollhouse" : "walkthrough");
+  }
+
+  /**
+   * Model-local point that should sit on the tapped floor in AR mode: the
+   * first hotspot is a natural entrance; the origin (footprint centre) is the
+   * fallback.
+   */
+  setEntryPoint(local: Vector3): void {
+    this.entryPoint.copy(local);
+  }
+
+  /** True once the AR model has been anchored to a detected surface. */
+  get isPlaced(): boolean {
+    return this.arPlaced;
+  }
+
+  /** Anchors the 1:1 model so `entryPoint` lands on `worldPoint`. */
+  placeAt(worldPoint: Vector3): void {
+    this.vecA.copy(this.entryPoint).multiplyScalar(this.walkScale);
+    this.arAnchorPosition.copy(worldPoint).sub(this.vecA);
+    this.arPlaced = true;
+    this.modelRoot.visible = true;
+
+    if (this.mode === "ar") {
+      // Snap rather than tween: the user is standing where the building goes.
+      this.modelRoot.position.copy(this.arAnchorPosition);
+      this.modelRoot.scale.setScalar(this.walkScale);
+      this.toPosition.copy(this.arAnchorPosition);
+      this.toScale = this.walkScale;
+      this.transitionProgress = 1;
+    }
+    this.onPlaced?.();
+  }
+
+  /** Forgets the AR anchor so the next tap places the model afresh. */
+  resetPlacement(): void {
+    this.arPlaced = false;
+    if (this.mode === "ar") this.modelRoot.visible = false;
+    if (this.placementReticle) this.placementReticle.visible = false;
+  }
+
+  /** Moves the user to a hotspot, in XR or on the desktop rig. */
+  goToHotspot(hotspot: Hotspot): void {
+    const world = this.modelRoot.localToWorld(
+      this.vecB.set(hotspot.position.x, hotspot.position.y, hotspot.position.z),
+    );
+    if (this.renderer.xr.isPresenting) {
+      this.teleportRigTo(world, hotspot.yaw);
+    } else {
+      this.locomotion?.travelTo(world, hotspot.yaw);
+    }
   }
 
   /**
@@ -265,7 +380,8 @@ export class ArchPresentationCore {
     const handsTracked = this.updateHands();
     if (!handsTracked) {
       this.hideMenu();
-      this.updateControllerTeleport();
+      this.updateControllerRay();
+      if (this.mode === "walkthrough") this.updateThumbsticks(deltaSeconds);
     } else if (this.inputMode !== "hands") {
       this.setInputMode("hands");
     }
@@ -308,6 +424,13 @@ export class ArchPresentationCore {
       (this.teleportMarker.material as MeshBasicMaterial).dispose();
       this.teleportMarker.parent?.remove(this.teleportMarker);
       this.teleportMarker = null;
+    }
+
+    if (this.placementReticle) {
+      this.placementReticle.geometry.dispose();
+      (this.placementReticle.material as MeshBasicMaterial).dispose();
+      this.placementReticle.parent?.remove(this.placementReticle);
+      this.placementReticle = null;
     }
 
     this.hitTestSource?.cancel?.();
@@ -361,10 +484,14 @@ export class ArchPresentationCore {
   // ============================================================ hit test
 
   /**
-   * Snaps the miniature to the first real-world surface under the user's gaze
-   * (floor or table), so the dollhouse rests on physical geometry.
+   * Tracks the first real-world surface under the user's gaze.
+   *
+   * Dollhouse mode snaps the miniature onto it; AR mode shows a reticle there
+   * and waits for a tap before anchoring the 1:1 model.
    */
   private updateHitTest(frame: XRFrame): void {
+    if (this.mode === "walkthrough") return;
+
     const session = this.renderer.xr.getSession();
     const referenceSpace = this.renderer.xr.getReferenceSpace();
     if (!session || !referenceSpace) return;
@@ -373,8 +500,11 @@ export class ArchPresentationCore {
       this.hitTestRequested = true;
       if (typeof session.requestHitTestSource !== "function") {
         this.onNotice?.(
-          "Surface detection is unavailable, so the dollhouse uses a fixed position in front of you.",
+          this.mode === "ar"
+            ? "Surface detection is unavailable on this device, so the model is placed at your current position."
+            : "Surface detection is unavailable, so the dollhouse uses a fixed position in front of you.",
         );
+        if (this.mode === "ar" && !this.arPlaced) this.placeAtUserFeet();
         return;
       }
       void (async () => {
@@ -387,9 +517,8 @@ export class ArchPresentationCore {
           }
           this.hitTestSource = source ?? null;
         } catch {
-          this.onNotice?.(
-            "Surface detection was refused by the headset; the dollhouse uses a fixed position.",
-          );
+          this.onNotice?.("Surface detection was refused by the device.");
+          if (this.mode === "ar" && !this.arPlaced) this.placeAtUserFeet();
         }
       })();
       return;
@@ -398,22 +527,44 @@ export class ArchPresentationCore {
     if (!this.hitTestSource) return;
 
     const results = frame.getHitTestResults(this.hitTestSource);
-    if (results.length === 0) return;
+    if (results.length === 0) {
+      if (this.placementReticle) this.placementReticle.visible = false;
+      this.reticlePoint = null;
+      return;
+    }
 
     const pose = results[0].getPose(referenceSpace);
     if (!pose) return;
 
+    // Hit poses are in the XR reference space, i.e. the rig's local frame.
     const { x, y, z } = pose.transform.position;
-    this.dollhouseAnchorPosition.set(x, y, z);
-    this.dollhouseAnchorFromHitTest = true;
+    const world = this.playerRig.localToWorld(this.vecA.set(x, y, z));
 
-    // Keep an in-flight or settled dollhouse tween tracking the surface.
     if (this.mode === "dollhouse") {
+      this.dollhouseAnchorPosition.copy(world);
+      this.dollhouseAnchorFromHitTest = true;
+      // Keep an in-flight or settled dollhouse tween tracking the surface.
       this.toPosition.copy(this.dollhouseAnchorPosition);
       if (this.transitionProgress >= 1) {
         this.modelRoot.position.lerp(this.dollhouseAnchorPosition, 0.15);
       }
+      return;
     }
+
+    // AR: show where a tap would put the entrance.
+    this.reticlePoint = (this.reticlePoint ?? new Vector3()).copy(world);
+    if (this.placementReticle) {
+      this.placementReticle.visible = !this.arPlaced;
+      this.placementReticle.position.copy(world);
+      this.placementReticle.position.y += 0.01;
+    }
+  }
+
+  /** Fallback anchor: the model's entrance at the user's feet, facing forward. */
+  private placeAtUserFeet(): void {
+    this.camera.getWorldPosition(this.vecB);
+    this.vecB.y = this.playerRig.position.y;
+    this.placeAt(this.vecB);
   }
 
   // =============================================================== hands
@@ -665,6 +816,22 @@ export class ArchPresentationCore {
     const controller = event.target as XRControllerLike | undefined;
     if (controller) this.controllerSelecting.delete(controller);
 
+    // AR: a tap (screen or trigger) anchors the model on the reticle.
+    if (this.mode === "ar") {
+      if (this.reticlePoint && !this.arPlaced) this.placeAt(this.reticlePoint);
+      return;
+    }
+
+    if (this.hoveredHotspot) {
+      const hotspot = this.hoveredHotspot;
+      this.hoveredHotspot = null;
+      this.teleportPoint = null;
+      if (this.teleportMarker) this.teleportMarker.visible = false;
+      this.goToHotspot(hotspot);
+      this.onHotspotSelect?.(hotspot);
+      return;
+    }
+
     if (this.teleportPoint) {
       this.teleportRigTo(this.teleportPoint);
       this.teleportPoint = null;
@@ -672,18 +839,22 @@ export class ArchPresentationCore {
     if (this.teleportMarker) this.teleportMarker.visible = false;
   };
 
-  /** Arc-free straight-ray teleport aimed from whichever trigger is held. */
-  private updateControllerTeleport(): void {
-    if (this.controllerSelecting.size === 0) {
+  /**
+   * Straight-ray pointing from whichever trigger is held: hotspots take
+   * priority, then walkable floor for teleporting.
+   */
+  private updateControllerRay(): void {
+    if (this.controllerSelecting.size === 0 || this.mode === "ar") {
       if (this.teleportMarker) this.teleportMarker.visible = false;
       this.teleportPoint = null;
+      this.hoveredHotspot = null;
       return;
     }
 
     const controller = this.controllerSelecting.values().next().value as
       | XRControllerLike
       | undefined;
-    if (!controller || this.teleportSurfaces.length === 0) return;
+    if (!controller) return;
 
     controller.getWorldPosition(this.rayOrigin);
     controller.getWorldQuaternion(this.worldQuaternion);
@@ -691,6 +862,15 @@ export class ArchPresentationCore {
 
     this.raycaster.set(this.rayOrigin, this.rayDirection);
     this.raycaster.far = 40;
+
+    this.hoveredHotspot = this.hotspots?.hitTest(this.raycaster) ?? null;
+    if (this.hoveredHotspot) {
+      this.teleportPoint = null;
+      if (this.teleportMarker) this.teleportMarker.visible = false;
+      return;
+    }
+
+    if (this.teleportSurfaces.length === 0) return;
 
     const hits = this.raycaster.intersectObjects(this.teleportSurfaces, false);
     const hit = hits.find((candidate) => candidate.face && candidate.face.normal.y !== 0);
@@ -710,13 +890,86 @@ export class ArchPresentationCore {
   }
 
   /**
-   * Moves the rig so the *camera* ends up over `point`.
+   * Quest-style smooth locomotion: left stick walks relative to where the
+   * user is looking, right stick snap-turns in 45° steps around the head.
+   */
+  private updateThumbsticks(deltaSeconds: number): void {
+    const session = this.renderer.xr.getSession();
+    if (!session) return;
+
+    let moveX = 0;
+    let moveY = 0;
+    let turn = 0;
+
+    for (const source of session.inputSources) {
+      const axes = source.gamepad?.axes;
+      if (!axes || axes.length < 4 || source.hand) continue;
+      // Oculus Touch / most XR gamepads expose the thumbstick on axes 2 & 3.
+      const x = axes[2];
+      const y = axes[3];
+      if (source.handedness === "right") {
+        turn = x;
+      } else {
+        moveX = x;
+        moveY = y;
+      }
+    }
+
+    // ---- snap turn
+    if (Math.abs(turn) > SNAP_TURN_THRESHOLD) {
+      if (this.snapTurnArmed) {
+        this.snapTurnArmed = false;
+        this.rotateRigAroundHead(turn > 0 ? -SNAP_TURN_RADIANS : SNAP_TURN_RADIANS);
+      }
+    } else if (Math.abs(turn) < STICK_DEAD_ZONE) {
+      this.snapTurnArmed = true;
+    }
+
+    // ---- walk
+    const magnitude = Math.hypot(moveX, moveY);
+    if (magnitude < STICK_DEAD_ZONE) return;
+    const scaled = (magnitude - STICK_DEAD_ZONE) / (1 - STICK_DEAD_ZONE);
+
+    // Head yaw only: pitch must not drive the user into the floor.
+    this.camera.getWorldDirection(this.vecA);
+    this.vecA.y = 0;
+    if (this.vecA.lengthSq() < 1e-6) return;
+    this.vecA.normalize();
+    this.vecB.set(-this.vecA.z, 0, this.vecA.x); // right vector
+
+    this.vecC
+      .set(0, 0, 0)
+      .addScaledVector(this.vecA, -moveY / magnitude)
+      .addScaledVector(this.vecB, moveX / magnitude)
+      .multiplyScalar(scaled * STICK_WALK_SPEED * deltaSeconds);
+
+    this.playerRig.position.add(this.vecC);
+  }
+
+  /** Yaws the rig about the headset so the user turns in place. */
+  private rotateRigAroundHead(radians: number): void {
+    this.camera.getWorldPosition(this.vecA);
+    this.playerRig.rotation.y += radians;
+    this.playerRig.updateMatrixWorld(true);
+    this.camera.getWorldPosition(this.vecB);
+    this.playerRig.position.add(this.vecA.sub(this.vecB));
+  }
+
+  /**
+   * Moves the rig so the *camera* ends up over `point`, optionally facing `yaw`.
    *
    * In XR the headset pose is applied on top of the rig, so simply setting
    * `rig.position = point` would land the user wherever their body happens to
    * be offset from the play-space origin.
    */
-  private teleportRigTo(point: Vector3): void {
+  private teleportRigTo(point: Vector3, yaw?: number): void {
+    if (yaw !== undefined) {
+      // Turn first so the head offset below is measured in the new heading.
+      this.camera.getWorldDirection(this.vecC);
+      const headYaw = Math.atan2(-this.vecC.x, -this.vecC.z);
+      this.playerRig.rotation.y += yaw - headYaw;
+      this.playerRig.updateMatrixWorld(true);
+    }
     this.camera.getWorldPosition(this.vecA);
     const offsetX = this.vecA.x - this.playerRig.position.x;
     const offsetZ = this.vecA.z - this.playerRig.position.z;
@@ -726,7 +979,7 @@ export class ArchPresentationCore {
   private buildTeleportMarker(): void {
     const marker = new Mesh(
       new RingGeometry(0.18, 0.26, 32).rotateX(-Math.PI / 2),
-      new MeshBasicMaterial({ color: 0x5b8cff, transparent: true, opacity: 0.85, side: DoubleSide }),
+      new MeshBasicMaterial({ color: 0xc9962a, transparent: true, opacity: 0.85, side: DoubleSide }),
     );
     marker.name = "MenovaTeleportMarker";
     marker.visible = false;
@@ -735,14 +988,27 @@ export class ArchPresentationCore {
     this.teleportMarker = marker;
   }
 
+  private buildPlacementReticle(): void {
+    const reticle = new Mesh(
+      new RingGeometry(0.12, 0.16, 40).rotateX(-Math.PI / 2),
+      new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: DoubleSide }),
+    );
+    reticle.name = "MenovaPlacementReticle";
+    reticle.visible = false;
+    reticle.renderOrder = 998;
+    this.scene.add(reticle);
+    this.placementReticle = reticle;
+  }
+
   // ============================================================ sessions
 
   private readonly onSessionStart = () => {
     this.locomotion?.setEnabled(false);
     this.hitTestRequested = false;
     this.hitTestSource = null;
+    this.snapTurnArmed = true;
     // Re-apply the background rule for the mode we entered with.
-    this.setPassthrough(this.mode === "dollhouse");
+    this.setPassthrough(this.mode !== "walkthrough");
     this.detectInputMode();
   };
 
@@ -753,7 +1019,12 @@ export class ArchPresentationCore {
     this.viewerSpace = null;
     this.hideMenu();
     this.controllerSelecting.clear();
+    this.hoveredHotspot = null;
     if (this.teleportMarker) this.teleportMarker.visible = false;
+    if (this.placementReticle) this.placementReticle.visible = false;
+    this.reticlePoint = null;
+    this.arPlaced = false;
+    this.modelRoot.visible = true;
 
     // Leaving XR always returns to the fully virtual 1:1 view.
     this.setMode("walkthrough");

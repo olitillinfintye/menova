@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 
 interface ViewerPageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ edit?: string }>;
 }
 
 export async function generateMetadata({ params }: ViewerPageProps): Promise<Metadata> {
@@ -38,8 +39,9 @@ export async function generateMetadata({ params }: ViewerPageProps): Promise<Met
  * ships — a shared client link opens straight into the download, with no
  * round-trip to `/api/projects` first.
  */
-export default async function ViewerPage({ params }: ViewerPageProps) {
+export default async function ViewerPage({ params, searchParams }: ViewerPageProps) {
   const { id } = await params;
+  const { edit } = await searchParams;
 
   if (!isProjectId(id)) notFound();
 
@@ -62,7 +64,9 @@ export default async function ViewerPage({ params }: ViewerPageProps) {
         title: project.title,
         blobUrl: project.blobUrl,
         blobPathname: project.blobPathname,
+        hotspots: project.hotspots,
       }}
+      editable={edit === "1"}
     />
   );
 }
