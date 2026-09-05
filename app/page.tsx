@@ -6,7 +6,7 @@ import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import { Arrow, SiteNav } from "@/app/components/SiteNav";
 import { MAX_FILE_BYTES, MODEL_FORMATS, type ModelFormat, formatBytes } from "@/lib/constants";
 
-const WALKTHROUGH_VIDEO = "/media/space-walkthrough.mp4";
+const WALKTHROUGH_VIDEO = "/media/3D_Interior_animation.mp4";
 
 const DEVICES = [
   {

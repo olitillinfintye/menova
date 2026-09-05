@@ -32,7 +32,7 @@ const DEVICES: Record<Device, DeviceMeta> = {
     icon: <path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm6 15h.01" />,
     frame: "max-w-3xl rounded-[2rem] border-[3px] p-3",
     screen: "aspect-[4/3] rounded-[1.4rem]",
-    fit: "contain",
+    fit: "cover",
     hint: "Drag left to walk · drag right to look",
   },
   browser: {
@@ -40,7 +40,7 @@ const DEVICES: Record<Device, DeviceMeta> = {
     icon: <path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Zm0 3h18M6 6.5h.01M8.5 6.5h.01" />,
     frame: "max-w-5xl rounded-2xl border-2 p-1.5",
     screen: "aspect-[16/9] rounded-xl",
-    fit: "contain",
+    fit: "cover",
     hint: "WASD to walk · click to look · Shift to sprint",
   },
   mobile: {
