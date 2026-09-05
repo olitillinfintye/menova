@@ -172,12 +172,38 @@ export async function OPTIONS(request: Request): Promise<Response> {
   return handlePreflight(request);
 }
 
-/** Advertises the upload rules so clients can self-configure. */
+/**
+ * `GET /api/upload`
+ *
+ * Readiness probe + upload rules. The Blob client collapses every handshake
+ * failure into "Failed to retrieve the client token", so the dashboard calls
+ * this to surface the real cause (auth, missing env vars) to the user.
+ */
 export async function GET(request: Request): Promise<Response> {
-  return jsonResponse(request, {
-    maxFileBytes: MAX_FILE_BYTES,
-    allowedExtensions: ALLOWED_EXTENSIONS,
-    allowedContentTypes: ALLOWED_CONTENT_TYPES,
-    folder: BLOB_FOLDER,
-  });
+  try {
+    await requireSession(request);
+
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      throw new ApiError(
+        "misconfigured",
+        "BLOB_READ_WRITE_TOKEN is not set. Link a Vercel Blob store (`vercel blob store add`) and run `vercel env pull .env.local`.",
+      );
+    }
+    if (!process.env.POSTGRES_URL) {
+      throw new ApiError(
+        "misconfigured",
+        "POSTGRES_URL is not set. Link a Vercel Postgres store and run `vercel env pull .env.local`.",
+      );
+    }
+
+    return jsonResponse(request, {
+      ready: true,
+      maxFileBytes: MAX_FILE_BYTES,
+      allowedExtensions: ALLOWED_EXTENSIONS,
+      allowedContentTypes: ALLOWED_CONTENT_TYPES,
+      folder: BLOB_FOLDER,
+    });
+  } catch (error) {
+    return errorResponse(request, toApiError(error));
+  }
 }

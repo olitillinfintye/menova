@@ -42,6 +42,26 @@ async function readError(response: Response, fallback: string): Promise<string> 
   return `${fallback} (HTTP ${response.status})`;
 }
 
+/**
+ * `@vercel/blob` reports every failed token handshake as the same opaque
+ * message. Ask the readiness probe what actually went wrong.
+ */
+async function explainUploadFailure(error: unknown): Promise<string> {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "An unexpected error interrupted the upload. Please try again.";
+  if (!/client token/i.test(message)) return message;
+
+  try {
+    const probe = await fetch("/api/upload", { cache: "no-store" });
+    if (!probe.ok) return await readError(probe, "The upload service rejected the request.");
+  } catch {
+    /* fall through to the generic hint */
+  }
+  return `${message}. Check that the server can reach Vercel Blob and that you are signed in.`;
+}
+
 /** Strips path separators and unsafe characters from a user-supplied name. */
 function sanitiseFilename(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "model.glb";
@@ -179,10 +199,7 @@ export default function DashboardPage() {
       } catch (error) {
         setModal({
           title: "Upload failed",
-          message:
-            error instanceof Error
-              ? error.message
-              : "An unexpected error interrupted the upload. Please try again.",
+          message: await explainUploadFailure(error),
         });
       } finally {
         setUploading(false);
