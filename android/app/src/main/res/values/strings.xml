@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Archviz</string>
+    <string name="powered_by">Powered by Menova Studio</string>
+    <string name="loading">Opening your workspace</string>
+    <string name="connection_error">Cannot reach Archviz</string>
+    <string name="connection_message">Check your internet connection and try again.</string>
+    <string name="retry">Try again</string>
+    <string name="back">Back</string>
+    <string name="reload">Reload</string>
+    <string name="open_browser">Open in browser</string>
+    <string name="no_handler">No app is available to open this link.</string>
+    <string name="download_started">Download started</string>
+    <string name="download_failed">Could not save this file. Try opening the page in your browser.</string>
+    <string name="download_saved">Render saved</string>
+    <string name="choose_model">Choose a model</string>
+</resources>

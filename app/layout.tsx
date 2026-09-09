@@ -25,15 +25,15 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Menova Studios — Architectural spaces, one link away",
-    template: "%s · Menova Studios",
+    default: "Archviz | Powered by Menova Studio",
+    template: "%s · Archviz",
   },
   description:
-    "Web-based architectural visualisation: upload a .glb, .fbx or .skp model, share a link, and walk through it on desktop, mobile or Meta Quest.",
+    "Archviz by Menova Studio. Architectural model presentations, room-scale mixed reality, and immersive walkthroughs on web, mobile and Meta Quest.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#16163a",
+  themeColor: "#101415",
   width: "device-width",
   initialScale: 1,
   // Prevents iOS double-tap zoom from fighting the viewer's touch controls.

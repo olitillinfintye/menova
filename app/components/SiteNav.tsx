@@ -24,10 +24,10 @@ export function SiteNav({ current = "home", tone = "dark" }: SiteNavProps) {
 
   return (
     <header className={`relative z-40 ${light ? "bg-[var(--color-paper)]" : ""}`}>
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8 sm:py-6">
+      <nav className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-8 sm:py-5">
         <Logo tone={light ? "light" : "dark"} />
 
-        <div className="hidden items-center gap-7 md:flex">
+        <div className="hidden items-center gap-7 lg:flex">
           {LINKS.map((link) => (
             <Link
               key={link.href}
@@ -39,23 +39,34 @@ export function SiteNav({ current = "home", tone = "dark" }: SiteNavProps) {
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            aria-current={current === "dashboard" ? "page" : undefined}
-            className={`ring-focus hidden rounded-md text-[15px] font-medium transition sm:inline-flex ${linkClass}`}
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/contact" className={`ring-focus rounded-md py-2.5 text-sm font-medium transition ${linkClass}`}>
+            Contact us
+          </Link>
+          <a
+            href="/downloads/archviz.apk"
+            download="archviz.apk"
+            title="Download Archviz for Android 8.0+ (debug-signed APK)"
+            className={`ring-focus inline-flex items-center rounded-md border border-current/25 px-3 py-2.5 text-sm font-semibold transition ${linkClass}`}
           >
-            {current === "dashboard" ? "Dashboard" : "Login"}
+            Download APK
+          </a>
+          <Link
+            href={current === "dashboard" ? "/" : "/dashboard"}
+            className={`ring-focus items-center gap-2 rounded-md py-2.5 text-sm font-medium transition ${current === "dashboard" ? "inline-flex" : "hidden sm:inline-flex"} ${linkClass}`}
+          >
+            {current === "dashboard" && <Arrow className="h-4 w-4 rotate-180" />}
+            {current === "dashboard" ? "Back to home" : "Workspace"}
           </Link>
           <Link
-            href="/dashboard"
+            href="/dashboard#upload-heading"
             className={`ring-focus btn-slant inline-flex items-center gap-2 py-2.5 pl-5 text-sm font-semibold transition hover:brightness-110 ${
               light
                 ? "bg-[var(--color-navy)] text-white"
                 : "bg-[var(--color-accent)] text-white"
             }`}
           >
-            Get Started
+            {current === "dashboard" ? "New project" : "Open Archviz"}
             <Arrow />
           </Link>
         </div>

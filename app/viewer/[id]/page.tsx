@@ -17,18 +17,18 @@ interface ViewerPageProps {
 
 export async function generateMetadata({ params }: ViewerPageProps): Promise<Metadata> {
   const { id } = await params;
-  if (!isProjectId(id)) return { title: "Space not found · Menova Studios" };
+  if (!isProjectId(id)) return { title: "Space not found" };
 
   try {
     const project = await getProject(id);
-    if (!project) return { title: "Space not found · Menova Studios" };
+    if (!project) return { title: "Space not found" };
     return {
-      title: `${project.title} · Menova Studios`,
+      title: project.title,
       description: `Walk through ${project.title} on desktop, mobile or Meta Quest.`,
     };
   } catch {
     // A database outage must not break the page shell.
-    return { title: "Menova Studios" };
+    return { title: "Archviz" };
   }
 }
 

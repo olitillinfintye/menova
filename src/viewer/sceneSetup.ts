@@ -3,7 +3,6 @@ import {
   Color,
   DirectionalLight,
   HemisphereLight,
-  Matrix3,
   Mesh,
   type Object3D,
   PCFSoftShadowMap,
@@ -203,7 +202,6 @@ export function detectTeleportSurfaces(
   const normal = new Vector3();
   const edge1 = new Vector3();
   const edge2 = new Vector3();
-  const normalMatrix = new Matrix3();
 
   root.updateWorldMatrix(true, true);
 
@@ -221,8 +219,6 @@ export function detectTeleportSurfaces(
     // Sample uniformly on very dense meshes so detection stays O(constant).
     const stride = Math.max(1, Math.ceil(triangleCount / maxTrianglesPerMesh));
     const sampledFraction = 1 / stride;
-
-    normalMatrix.getNormalMatrix(child.matrixWorld);
 
     // Sampled sums; scaled back to full-mesh values after the loop.
     let sampledUpwardArea = 0;
@@ -245,7 +241,6 @@ export function detectTeleportSurfaces(
       sampledTotalArea += area;
 
       Triangle.getNormal(a, b, c, normal);
-      normal.applyMatrix3(normalMatrix).normalize();
 
       // Double-sided floor slabs can be wound either way; treat |n.y| as up.
       if (Math.abs(normal.y) >= minNormalY) {

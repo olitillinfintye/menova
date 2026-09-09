@@ -1,0 +1,30 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.menova.studio'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.menova.studio'
+        minSdk 26
+        targetSdk 35
+        versionCode 3
+        versionName '1.1.1'
+        buildConfigField 'String', 'SITE_URL', '"https://menova-flax.vercel.app/"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

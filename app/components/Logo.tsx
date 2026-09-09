@@ -12,14 +12,13 @@ interface LogoProps {
 }
 
 /** Intrinsic sizes of the generated brand assets in public/brand. */
-const LOCKUP = { width: 1293, height: 558 };
-const MARK = { width: 293, height: 294 };
+const MARK = { width: 512, height: 512 };
 
 /** Gold swoosh from the Menova Studios logo. */
 export function LogoMark({ className = "h-8 w-8" }: { className?: string; tone?: Tone }) {
   return (
     <Image
-      src="/brand/menova-mark.png"
+      src="/brand/archviz-mark.png"
       alt=""
       aria-hidden="true"
       width={MARK.width}
@@ -32,14 +31,13 @@ export function LogoMark({ className = "h-8 w-8" }: { className?: string; tone?:
 /** Full "MENNOVA STUDIOS" lockup, transparent, in the requested tone. */
 export function LogoLockup({ className = "h-9 w-auto", tone = "dark" }: { className?: string; tone?: Tone }) {
   return (
-    <Image
-      src={tone === "light" ? "/brand/menova-lockup-light.png" : "/brand/menova-lockup-dark.png"}
-      alt="Menova Studios"
-      width={LOCKUP.width}
-      height={LOCKUP.height}
-      priority
-      className={`object-contain ${className}`}
-    />
+    <span className={`archviz-lockup inline-flex items-center gap-2.5 ${tone === "light" ? "text-[var(--color-navy)]" : "text-[var(--color-ink)]"} ${className}`}>
+      <LogoMark className="h-full max-h-12 w-auto shrink-0" />
+      <span className="flex min-w-0 flex-col">
+        <span className="font-display text-2xl leading-none font-bold">Archviz</span>
+        <span className="mt-1 text-[9px] leading-tight font-medium opacity-70">Powered by Menova Studio</span>
+      </span>
+    </span>
   );
 }
 
@@ -48,7 +46,7 @@ export function Logo({ className = "", compact = false, tone = "dark" }: LogoPro
     <Link
       href="/"
       className={`ring-focus inline-flex items-center rounded-lg ${className}`}
-      aria-label="Menova Studios home"
+      aria-label="Archviz home"
     >
       {compact ? <LogoMark /> : <LogoLockup tone={tone} className="h-11 w-auto sm:h-12" />}
     </Link>

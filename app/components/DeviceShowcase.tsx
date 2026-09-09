@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { LogoLockup } from "@/app/components/Logo";
 
@@ -21,9 +21,8 @@ const DEVICES: Record<Device, DeviceMeta> = {
   headset: {
     label: "Headset",
     icon: <path d="M3 10a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3h-2.5l-1.5-2h-4l-1.5 2H6a3 3 0 0 1-3-3v-4Z" />,
-    // Visor: soft top corners, bottom corners swept up on a tall ellipse.
-    frame: "max-w-4xl rounded-[3rem_3rem_7rem_7rem/3rem_3rem_11rem_11rem] border-[3px] p-2.5",
-    screen: "aspect-[2/1] rounded-[2.5rem_2.5rem_6.5rem_6.5rem/2.5rem_2.5rem_10.5rem_10.5rem]",
+    frame: "max-w-5xl p-3 sm:p-5",
+    screen: "aspect-[2/1]",
     fit: "cover",
     hint: "Enter VR · 1:1 scale · hand tracking",
   },
@@ -54,6 +53,7 @@ const DEVICES: Record<Device, DeviceMeta> = {
 };
 
 const ORDER: Device[] = ["headset", "tablet", "browser", "mobile"];
+const VISOR_PATH = "M .5 .025 C .72 .025 .92 .06 .973 .30 C 1 .43 1 .67 .94 .82 C .89 .95 .81 .99 .73 .975 C .62 .96 .605 .785 .5 .785 C .395 .785 .38 .96 .27 .975 C .19 .99 .11 .95 .06 .82 C 0 .67 0 .43 .027 .30 C .08 .06 .28 .025 .5 .025 Z";
 
 function Icon({ children, className = "h-5 w-5" }: { children: React.ReactNode; className?: string }) {
   return (
@@ -103,6 +103,7 @@ export function DeviceShowcase({
 }: DeviceShowcaseProps) {
   const [device, setDevice] = useState<Device>("browser");
   const videoRef = useRef<HTMLVideoElement>(null);
+  const visorId = useId().replace(/:/g, "");
 
   // The `autoplay` attribute is ignored when React attaches `src` after the
   // element is created, so kick playback explicitly.
@@ -119,32 +120,15 @@ export function DeviceShowcase({
     <div>
       {/* ------------------------------ frame ------------------------------ */}
       <div
-        className={`relative mx-auto border-[var(--color-accent)] bg-[var(--color-canvas)] shadow-[0_0_0_1px_rgb(201_150_42_/_0.35),0_40px_120px_-40px_rgb(201_150_42_/_0.6)] transition-[max-width,border-radius,padding] ${morph} ${meta.frame}`}
+        className={`relative mx-auto transition-[max-width,border-radius,padding] ${morph} ${meta.frame} ${headset ? "" : "border-[var(--color-accent)] bg-[var(--color-canvas)] shadow-glow"}`}
       >
-        {/* Headset straps: slide out from behind the visor. */}
-        {(["left", "right"] as const).map((side) => (
-          <span
-            key={side}
-            aria-hidden="true"
-            className={`absolute top-[22%] -z-10 h-[46%] w-10 bg-[var(--color-accent)] transition-[transform,opacity] ${morph} ${
-              side === "left" ? "-left-8 rounded-l-3xl" : "-right-8 rounded-r-3xl"
-            } ${headset ? "translate-x-0 opacity-100" : side === "left" ? "translate-x-8 opacity-0" : "-translate-x-8 opacity-0"}`}
-          />
-        ))}
-        {/* Headset face-pad highlight. */}
-        <span
-          aria-hidden="true"
-          className={`absolute inset-x-[18%] top-0 h-1.5 -translate-y-1/2 rounded-full bg-[var(--color-lavender)] transition-[opacity,transform] ${morph} ${
-            headset ? "opacity-100 scale-x-100" : "opacity-0 scale-x-50"
-          }`}
-        />
-        {/* Nose cut-out: rises through the bottom edge for the headset. */}
-        <span
-          aria-hidden="true"
-          className={`absolute -bottom-[3px] left-1/2 z-10 h-[27%] w-[21%] -translate-x-1/2 rounded-t-[100%] border-[3px] border-b-0 border-[var(--color-accent)] bg-[var(--color-canvas)] transition-[transform,opacity] ${morph} ${
-            headset ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
-          }`}
-        />
+        <svg aria-hidden="true" width="0" height="0" className="absolute">
+          <defs>
+            <clipPath id={visorId} clipPathUnits="objectBoundingBox">
+              <path d={VISOR_PATH} />
+            </clipPath>
+          </defs>
+        </svg>
         {/* device-specific chrome */}
         {device === "browser" && (
           <div className="flex items-center justify-between px-3 py-1.5 text-[var(--color-lavender)]">
@@ -184,7 +168,9 @@ export function DeviceShowcase({
 
         {/* ------------------------------ screen ---------------------------- */}
         <div
-          className={`group relative overflow-hidden bg-[#151537] transition-[aspect-ratio,border-radius] ${morph} ${meta.screen}`}
+          data-device-preview={device}
+          style={headset ? { clipPath: `url(#${visorId})` } : undefined}
+          className={`group relative overflow-hidden bg-[var(--color-surface)] transition-[aspect-ratio,border-radius] ${morph} ${meta.screen}`}
         >
           <video
             ref={videoRef}
@@ -200,7 +186,7 @@ export function DeviceShowcase({
 
           {/* HUD overlay */}
           <div
-            className={`pointer-events-none absolute inset-0 flex flex-col justify-between transition-[padding] ${morph} ${
+            className={`pointer-events-none absolute inset-0 ${headset ? "hidden" : "flex"} flex-col justify-between transition-[padding] ${morph} ${
               headset ? "px-[7%] pt-4 pb-[6%]" : "p-3 sm:p-4"
             }`}
           >
@@ -218,7 +204,7 @@ export function DeviceShowcase({
                 </HudButton>
               </div>
               <span className="flex items-center gap-1.5 rounded-md bg-black/35 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur">
-                Powered by <LogoLockup className="h-3.5 w-auto" />
+                <LogoLockup className="h-9 w-auto" />
               </span>
             </div>
 
@@ -259,7 +245,20 @@ export function DeviceShowcase({
               </div>
             </div>
           </div>
+          {headset && (
+            <p className="absolute inset-x-0 top-[7%] text-center text-[8px] font-medium text-white sm:text-xs">
+              Archviz · Powered by Menova Studio
+            </p>
+          )}
         </div>
+        {headset && (
+          <div aria-hidden="true" className="pointer-events-none absolute inset-3 sm:inset-5">
+            <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="h-full w-full overflow-visible fill-none stroke-[var(--color-accent)]">
+              <path d={VISOR_PATH} vectorEffect="non-scaling-stroke" strokeWidth="1.5" />
+              <path d={VISOR_PATH} transform="translate(-.015 -.022) scale(1.03 1.044)" vectorEffect="non-scaling-stroke" strokeWidth="1" opacity=".45" />
+            </svg>
+          </div>
+        )}
       </div>
 
       <p className="mt-4 text-center text-xs text-[var(--color-muted)]">{caption}</p>

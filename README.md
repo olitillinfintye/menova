@@ -1,8 +1,22 @@
-# Menova Studio
+# Archviz
+
+Architectural visualization, powered by Menova Studio.
 
 Web-based architectural visualisation on Vercel. Upload a `.glb`, get a shareable
 link, and walk the space on desktop, tablet or Meta Quest — including a mixed
 reality dollhouse mode and 4K render capture.
+
+## Android App
+
+The native Android wrapper opens the main page without a native toolbar and includes
+the Archviz launcher icon, animated loading screen, upload picker, and connection retry.
+Run `npm run android:build` to create `artifacts/archviz-debug.apk` for direct
+installation on Android 8.0+. The build also publishes `public/downloads/archviz.apk`
+for the website's **Download APK** button; build the APK before deploying the site.
+This APK is debug-signed for direct installation, not a Play Store release.
+Open Archviz leads to the workspace; Back to home returns to the main page.
+See [Android setup and limits](android/README.md). The app loads the hosted website
+and requires an internet connection.
 
 ## Stack
 
@@ -97,6 +111,53 @@ first creates the row while the other becomes a no-op returning the same record.
   restores the previous size, pixel ratio and camera aspect. This is why the
   renderer is created with `preserveDrawingBuffer: true`.
 
+## Contact Enquiries and Admin
+
+- `/contact` collects a name, email, optional phone/company, and project requirements.
+- `/admin` shows actual enquiry counts, unique emails, model storage, monthly activity,
+  enquiry statuses, and model formats. These are database metrics, not visitor tracking.
+- `/admin/models` reuses the workspace's model upload, share, hotspot, and delete flow.
+- `/admin/contacts` provides private search, status filters, pagination, email/phone links,
+  project details, and New / Contacted / Closed status updates.
+- `/admin/profile` changes the admin password after confirming the current password.
+
+Set `ADMIN_PASSWORD` to an initial password (8 characters minimum; a unique 16+ character
+password is recommended) and `AUTH_SECRET` to a random secret of at least 32 characters
+in `.env.local` and your deployment's environment settings. Never put either value in
+a `NEXT_PUBLIC_` variable or commit them. Restart or redeploy after changing environment
+configuration. The initial password is salted and hashed with scrypt in the private
+`admin_credentials` table on first use; only the hash is stored in the database. There
+is no default admin password. Once initialized, the stored password takes precedence:
+changing `ADMIN_PASSWORD` cannot reset it or overwrite a profile password change.
+The bootstrap variable can be removed after initialization.
+
+Sign in at `/admin/login`, then open the profile icon or `/admin/profile` to change the
+password. New profile passwords require at least 16 characters and the correct current
+password. A change rotates the credential version and signs out all other admin sessions;
+the current browser receives a new session. Signed, HTTP-only, SameSite=Strict cookies
+expire after eight hours and are Secure in production. Rotate `AUTH_SECRET` to revoke
+all sessions without changing the stored password. Keep the same database and signing
+secret configured in the target deployment; neither is provided by a GitHub push.
+
+The existing `POSTGRES_URL` connection is reused. On first submission, the server
+creates `contact_inquiries` and `request_limits` if needed. No additional service is
+required. The public contact endpoint is POST-only; enquiry reads and updates require
+the separate admin session even when `ALLOW_ANONYMOUS=true`. Admin model uploads use
+the existing shared `public` workspace owner. Set `ALLOW_ANONYMOUS=false` to disable
+anonymous access to model operations; public viewer links and the contact form remain
+available. The public workspace is not an admin login.
+
+Submissions have server-side field/body limits, parameterized SQL, duplicate protection,
+and a hidden spam trap. Login and contact requests are limited to ten attempts per
+15 minutes per client using Vercel's trusted forwarded IP header; outside Vercel the
+limit uses a shared bucket. A different hosting proxy should supply an explicitly
+trusted client-address strategy before deployment. Neither raw IP addresses nor
+contact bodies are logged. Enquiries remain in the database until an operator removes
+them; define a retention policy appropriate to your business.
+
+Run `npm run test:contact`, `npm run test:admin`, and `npm run build` to verify input
+validation, origin checks, throttling, private access, session expiry, and compilation.
+
 ## XR presentation
 
 `ArchPresentationController.ts` is the Needle Engine `Behaviour`; the runtime
@@ -107,8 +168,8 @@ serves both the Needle scene graph and the standalone viewer.
 | Mode                  | Scale  | Background        | Anchor                                |
 | --------------------- | ------ | ----------------- | ------------------------------------- |
 | A — 1:1 walkthrough   | `1.0`  | Virtual skybox    | Floor at `Y=0`                        |
-| B — Dollhouse / MR    | `0.02` | Passthrough       | XR hit-test surface (floor or table)  |
-| C — AR 1:1 (phone)    | `1.0`  | Camera feed       | Tapped floor point = first hotspot    |
+| B — Dollhouse preview | `0.02` | Desktop preview  | Model footprint                       |
+| C — Mixed reality     | `0.02`–`2.0` | Passthrough | Selected real floor = first hotspot |
 
 Switching tweens scale and position together with an ease-in-out cubic. The
 loaded file is wrapped in a neutral `Group` whose origin is the footprint centre
@@ -124,26 +185,42 @@ viewer with `?edit=1` (“Add hotspot here” captures the current pose) and sav
 through `PATCH /api/projects`. `src/viewer/Hotspots.ts` renders them as
 billboarded sprites parented to the model root, so they ride along through the
 dollhouse tween and AR placement. Selecting one glides the desktop rig
-(`Locomotion.travelTo`) or teleports the XR rig with the saved yaw; the first
-hotspot doubles as the AR entrance point.
+(`Locomotion.travelTo`) or teleports the VR rig with the saved yaw; the first
+hotspot doubles as the MR entrance point. In MR, selecting a hotspot translates
+the building so that hotspot lands at the user's physical feet, without rotating
+or moving the tracked rig.
 
-### AR at 1:1 (WebXR on Android Chrome)
+### Floor-First Mixed Reality
 
-**View in your space** requests `immersive-ar` with `hit-test` and
-`dom-overlay`. The model is hidden while a reticle tracks the floor; a tap
-anchors the model so its entry point sits on the reticle, then the user walks the
-building physically. The React HUD is passed as the overlay root, and
-`beforexrselect` is cancelled on its buttons so pressing **Exit AR** never
-doubles as a placement tap. iOS Safari has no WebXR, so the button only appears
-where `isSessionSupported("immersive-ar")` is true.
+**Mixed Reality · Room Scale** and **View in your space** start `immersive-ar`
+with required `local-floor` and `hit-test`, plus optional hand tracking and DOM
+overlay. The model starts hidden at a requested 1:1 scale. An upward-facing hit
+within 30cm of the runtime's calibrated floor shows a placement reticle; walls
+and tables are rejected. Aim at the floor and pinch/trigger, tap the phone screen,
+or use **Place model** once **Floor detected** appears. Placement is explicit and
+does not follow subsequent gaze movement. No floor support means no silent
+placement at guessed coordinates.
+
+The entrance is the first hotspot, falling back to the centred model origin.
+Use the phone slider or wrist-menu **-**/**+** buttons to scale from 2% to 200%;
+**1:1** restores 100%. Scaling keeps the entrance anchored, including after a
+room teleport. **Re-place** hides the model and requires a fresh floor hit.
+The HUD cancels `beforexrselect` so its buttons cannot also place or teleport.
 
 **Palm menu.** The palm normal is derived geometrically from the wrist, index
 metacarpal and pinky metacarpal joints — `(index − wrist) × (pinky − wrist)` for
 a left hand, operands swapped for a right — rather than from a joint's own axes,
 because joint-space conventions vary between runtimes while that triangle does
 not. When `dot(palmNormal, toCamera) > 0.7` the holographic menu appears above
-the wrist. A pinch (index tip to thumb tip under 2cm, releasing at 3cm) presses
-the button the pinch started on.
+the wrist. Touch a button with the other index fingertip, or aim the runtime's
+hand ray and pinch/release to select. Touch is detected against the button's
+rectangular face with an 18mm depth threshold; move the fingertip at least 65mm
+from the last touch before another press. A short debounce prevents
+touches from becoming duplicate ray selections. The menu offers MR, VR walk,
+scale down/up, 1:1, re-placement, exit, and **Rooms**. Rooms shows four saved
+hotspots per page with previous/next controls. Touch a room or select it with a
+hand/controller ray to teleport; MR requires floor placement first. Physical controllers get a floating
+ray-selectable menu. Three.js primitive hand models provide visible hand feedback.
 
 **Fallback chain.** Hand tracking → Quest controllers (left thumbstick walks
 relative to head yaw, right thumbstick snap-turns 45° around the head, trigger
@@ -151,14 +228,42 @@ ray teleports to a detected floor or selects a hotspot) → desktop WASD with
 pointer-lock look → mobile touch, where the left half of the screen is a walk
 joystick and the right half a look pad.
 
+Hand pinch and controller trigger use the same teleport selection path. After
+MR placement, aim at a model floor or room hotspot and release to teleport.
+Floor rays stop at the first model mesh, so a wall blocks teleporting through it.
+In MR, teleporting translates the virtual building instead of the physical
+tracking rig; virtual stairs/floors are brought to the user's real floor level.
+Smooth thumbstick movement and snap-turn remain VR-only. Real obstacles are not
+detected or removed: keep the headset's safety boundary enabled and a clear space.
+
 Hit-test poses arrive in the XR reference space, which is the player rig's local
 frame, so they are mapped through `playerRig.localToWorld` before being used as
 world anchors.
 
-Passthrough requires an `immersive-ar` session: the blend mode is fixed when the
-session is created, so entering through **Enter VR** and then switching to
-dollhouse gives you the miniature against a black void rather than your room. The
-controller reports this through `onNotice` instead of failing silently.
+Passthrough requires an `immersive-ar` session. Switching an opaque VR session
+to MR is rejected with a notice; exit VR and enter Mixed Reality instead.
+Session exit clears placement/selection state and restores the pre-XR rig.
+
+Use a compatible Quest browser or Android Chrome with AR support and spatial
+permissions. The Android APK's WebView does not provide full WebXR: use its
+**Open XR in browser** action in the viewer. Model units determine whether 100% is physically
+accurate; the app cannot infer an incorrectly exported model's real dimensions.
+
+### XR Verification
+
+`npm run test:xr` runs the actual presentation core against simulated XR frames,
+hands, controller rays, and Three.js geometry (Node 22.15+ / 24 recommended).
+`npm run build` includes the production TypeScript check.
+
+For browser smoke checks, install Playwright/Chromium separately, set
+`PLAYWRIGHT_MODULE` to its `playwright/index.mjs`, and run
+`node scripts/check-viewer.mjs` against the running dev server. Optional
+`VIEWER_ORIGIN` and `VIEWER_PATH` select another deployment/project. It uses an
+existing project without changing its data, captures desktop/mobile screenshots,
+and checks canvas pixels, mode controls, viewport bounds, and runtime errors.
+Browser checks simulate XR capability discovery, not an immersive session.
+Actual floor calibration, passthrough, tracking loss, touch ergonomics, placement,
+scaling, and room teleportation still require an on-headset smoke test.
 
 ### Needle Engine and the three.js instance
 

@@ -7,6 +7,7 @@ out
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+/artifacts/
 
 .env*
 !.env.example

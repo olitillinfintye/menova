@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
 
+import { ADMIN_COOKIE } from "@/lib/admin-session";
+import { isAdminSession } from "@/lib/admin-auth";
 import { forbidden, unauthorized } from "@/lib/errors";
 
 export const SESSION_COOKIE = "menova_session";
@@ -11,7 +13,7 @@ export interface Session {
   /** Stable owner identifier stored on every project row. */
   userId: string;
   /** How the caller proved their identity. */
-  source: "cookie" | "bearer" | "anonymous";
+  source: "cookie" | "bearer" | "anonymous" | "admin";
 }
 
 const encoder = new TextEncoder();
@@ -95,6 +97,9 @@ export async function getSession(request?: Request): Promise<Session | null> {
 
   try {
     const store = await cookies();
+    if (await isAdminSession(store.get(ADMIN_COOKIE)?.value)) {
+      return { userId: ANONYMOUS_OWNER_ID, source: "admin" };
+    }
     const raw = store.get(SESSION_COOKIE)?.value;
     if (raw) {
       const userId = await verifySessionValue(raw);

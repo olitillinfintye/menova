@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ViewerApi, XrSessionMode } from "@/app/viewer/[id]/ViewerCanvas";
 import { HotspotEditor } from "@/app/viewer/[id]/HotspotEditor";
+import { QuickLookButton } from "@/app/viewer/[id]/QuickLookButton";
 import { FormatBadge } from "@/app/components/FormatBadge";
 import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import type { InputMode, PresentationMode } from "@/src/needle/ArchPresentationCore";
@@ -28,7 +29,7 @@ const INPUT_HINTS: Record<InputMode, string> = {
   desktop: "WASD to walk · click to look · click a marker to go there",
   touch: "Drag left to walk · drag right to look · tap a marker to go there",
   controllers: "Left stick walks · right stick turns · trigger on a floor or marker to teleport",
-  hands: "Turn your left palm toward you, then pinch a button",
+  hands: "Hand tracking active",
 };
 
 const OVERLAY_BUTTON =
@@ -48,7 +49,7 @@ function SketchUpNotice({ project }: ViewerClientProps) {
 
       <div className="card animate-fade-up w-full max-w-lg rounded-[2rem] p-8 sm:p-10">
         <div className="flex items-center justify-between">
-          <Link href="/" className="ring-focus rounded-lg" aria-label="Menova Studios home">
+          <Link href="/" className="ring-focus rounded-lg" aria-label="Archviz home">
             <LogoLockup className="h-9 w-auto" />
           </Link>
           <FormatBadge format="skp" />
@@ -118,13 +119,20 @@ function InteractiveViewer({ project, format, editable = false }: InteractiveVie
   const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<PresentationMode>("walkthrough");
   const [inputMode, setInputMode] = useState<InputMode>("desktop");
-  const [xrSupport, setXrSupport] = useState({ vr: false, ar: false });
+  const [xrSupport, setXrSupport] = useState({ vr: false, ar: false, quickLook: false });
   const [presenting, setPresenting] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [hotspots, setHotspots] = useState<Hotspot[]>(project.hotspots);
   const [editing, setEditing] = useState(editable);
   const [activeHotspot, setActiveHotspot] = useState<string | null>(null);
   const [placed, setPlaced] = useState(false);
+  const [modelScale, setModelScale] = useState(1);
+  const [floorDetected, setFloorDetected] = useState(false);
+  const [androidApp, setAndroidApp] = useState(false);
+
+  useEffect(() => {
+    setAndroidApp(navigator.userAgent.includes("ArchvizAndroid/"));
+  }, []);
 
   const arOverlayRef = useRef<HTMLDivElement>(null);
   const arControlsRef = useRef<HTMLDivElement>(null);
@@ -219,6 +227,9 @@ function InteractiveViewer({ project, format, editable = false }: InteractiveVie
         onInputModeChange={setInputMode}
         onHotspotSelect={(hotspot) => setActiveHotspot(hotspot.id)}
         onPlaced={() => setPlaced(true)}
+        onPlacementChange={setPlaced}
+        onScaleChange={setModelScale}
+        onFloorDetected={setFloorDetected}
         onXrSupport={setXrSupport}
         onXrPresentingChange={setPresenting}
         onReady={setApi}
@@ -245,12 +256,14 @@ function InteractiveViewer({ project, format, editable = false }: InteractiveVie
           </span>
 
           <div className="text-center">
+            <p className="font-display mb-2 text-2xl font-bold">Archviz</p>
             <p className="font-display text-base font-semibold tracking-tight">Preparing {project.title}</p>
             <p className="mt-1 font-mono text-xs tabular-nums text-[var(--color-muted)]">
               {progress === null
                 ? "Downloading model…"
                 : `Downloading model… ${Math.round(progress)}%`}
             </p>
+            <p className="mt-3 text-xs text-[var(--color-muted)]">Powered by Menova Studio</p>
           </div>
           {progress !== null && (
             <div className="relative h-1.5 w-64 overflow-hidden rounded-full bg-[var(--color-surface-3)]">
@@ -299,19 +312,32 @@ function InteractiveViewer({ project, format, editable = false }: InteractiveVie
         <>
           <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-4">
             <div className="glass pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-4 pl-2.5">
-              <Link href="/dashboard" className="ring-focus rounded-lg" aria-label="Back to studio">
-                <LogoMark className="h-7 w-7" />
+              <Link href="/dashboard" className="ring-focus shrink-0 rounded-lg" aria-label="Archviz workspace">
+                <LogoMark className="h-7 w-7 shrink-0" />
               </Link>
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-sm font-medium text-[var(--color-ink)]">
                   <span className="truncate">{project.title}</span>
                   <FormatBadge format={format} />
                 </p>
-                <p className="mt-0.5 text-[11px] text-[var(--color-muted)]">{INPUT_HINTS[inputMode]}</p>
+                <p className="mt-0.5 text-[10px] text-[var(--color-muted)]">Archviz · Powered by Menova Studio</p>
               </div>
             </div>
 
             <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
+              {androidApp && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("archvizOpenBrowser", "1");
+                    window.location.assign(url.href);
+                  }}
+                  className={OVERLAY_BUTTON}
+                >
+                  Open XR in browser
+                </button>
+              )}
               {xrSupport.ar && (
                 <button
                   type="button"
@@ -324,6 +350,15 @@ function InteractiveViewer({ project, format, editable = false }: InteractiveVie
                   </svg>
                   View in your space
                 </button>
+              )}
+              {!xrSupport.ar && xrSupport.quickLook && api && (
+                <QuickLookButton
+                  key={project.blobUrl}
+                  api={api}
+                  title={project.title}
+                  onError={showNotice}
+                  className={`${OVERLAY_BUTTON} accent-gradient inline-flex items-center gap-2 border-transparent text-white`}
+                />
               )}
               {xrSupport.vr && (
                 <button
@@ -339,11 +374,11 @@ function InteractiveViewer({ project, format, editable = false }: InteractiveVie
               {xrSupport.ar && (
                 <button
                   type="button"
-                  onClick={() => void handleEnterXR("immersive-ar", "dollhouse")}
+                  onClick={() => void handleEnterXR("immersive-ar", "ar")}
                   disabled={!api}
                   className={OVERLAY_BUTTON}
                 >
-                  Mixed Reality · Dollhouse
+                  Mixed Reality · Room Scale
                 </button>
               )}
               {editable && (
@@ -458,12 +493,41 @@ function InteractiveViewer({ project, format, editable = false }: InteractiveVie
         <div className="flex justify-center">
           <p className="glass rounded-2xl px-4 py-2.5 text-center text-xs font-medium text-white">
             {placed
-              ? "Placed at 1:1. Walk around — the model stays put."
-              : "Point your phone at the floor and tap where the entrance should be."}
+              ? `Placed · ${Math.round(modelScale * 100)}%`
+              : floorDetected ? "Floor detected" : "Detecting floor"}
           </p>
         </div>
 
-        <div ref={arControlsRef} className="pointer-events-auto flex justify-center gap-2">
+        <div ref={arControlsRef} className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
+          {!placed && (
+            <button
+              type="button"
+              onClick={() => api?.placeOnDetectedFloor()}
+              disabled={!floorDetected}
+              className={OVERLAY_BUTTON}
+            >
+              Place model
+            </button>
+          )}
+          {placed && (
+            <label className="glass flex max-w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-white">
+              Scale
+              <input
+                aria-label="Model scale"
+                type="range"
+                min="0.02"
+                max="2"
+                step="0.01"
+                value={modelScale}
+                onChange={(event) => api?.setScale(Number(event.target.value))}
+                className="w-28 accent-[var(--color-accent)]"
+              />
+              <output className="w-10 text-right tabular-nums">{Math.round(modelScale * 100)}%</output>
+              <button type="button" className="ring-focus px-2 py-1" onClick={() => api?.setScale(1)}>
+                1:1
+              </button>
+            </label>
+          )}
           {placed && (
             <button
               type="button"

@@ -4,6 +4,7 @@ import {
   DoubleSide,
   Group,
   LinearFilter,
+  Matrix3,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -19,6 +20,8 @@ import {
   Vector3,
   type WebGLRenderer,
 } from "three";
+import { XRHandModelFactory } from "three/examples/jsm/webxr/XRHandModelFactory.js";
+import { disposeHierarchy } from "@/src/viewer/sceneSetup";
 
 import type { Hotspot } from "@/lib/types";
 import type { HotspotLayer } from "@/src/viewer/Hotspots";
@@ -63,14 +66,14 @@ export interface ArchPresentationOptions {
   onHotspotSelect?: (hotspot: Hotspot) => void;
   /** Fired when the AR model has been (re)placed on a real surface. */
   onPlaced?: () => void;
+  onPlacementChange?: (placed: boolean) => void;
+  onScaleChange?: (scale: number) => void;
+  onFloorDetected?: (detected: boolean) => void;
   /** Surfaced to the UI for non-fatal issues (missing hit-test, etc). */
   onNotice?: (message: string) => void;
 }
 
-const PINCH_ENGAGE_METRES = 0.02;
-const PINCH_RELEASE_METRES = 0.03;
 const PALM_FACING_DOT = 0.7;
-const BUTTON_HIT_RADIUS = 0.045;
 
 /** Thumbstick smooth locomotion, metres per second at full deflection. */
 const STICK_WALK_SPEED = 2.2;
@@ -86,7 +89,6 @@ const WRIST = "wrist";
 const INDEX_METACARPAL = "index-finger-metacarpal";
 const PINKY_METACARPAL = "pinky-finger-metacarpal";
 const INDEX_TIP = "index-finger-tip";
-const THUMB_TIP = "thumb-tip";
 
 /**
  * Derived from the renderer rather than imported by name: three has moved
@@ -96,19 +98,22 @@ const THUMB_TIP = "thumb-tip";
 type XRHandLike = ReturnType<WebGLRenderer["xr"]["getHand"]>;
 type XRControllerLike = ReturnType<WebGLRenderer["xr"]["getController"]>;
 
+type MenuAction = "ar" | "walkthrough" | "smaller" | "larger" | "actual" | "place" | "exit"
+  | "rooms" | "controls" | "hotspot" | "previous" | "next" | "empty";
+
 interface MenuButton {
   root: Group;
   mesh: Mesh;
   material: MeshStandardMaterial;
-  mode: PresentationMode;
+  action: MenuAction;
   label: string;
+  hotspot?: Hotspot;
 }
 
 interface HandState {
   object: XRHandLike;
-  pinching: boolean;
-  /** Button the current pinch started on, so release fires on the same target. */
-  pressedButton: MenuButton | null;
+  touchedButton: MenuButton | null;
+  releasePoint: Vector3 | null;
 }
 
 function easeInOutCubic(t: number): number {
@@ -147,6 +152,10 @@ export class ArchPresentationCore {
   private readonly onInputModeChange?: (mode: InputMode) => void;
   private readonly onHotspotSelect?: (hotspot: Hotspot) => void;
   private readonly onPlaced?: () => void;
+  private readonly onPlacementChange?: (placed: boolean) => void;
+  private readonly onScaleChange?: (scale: number) => void;
+  private readonly onFloorDetected?: (detected: boolean) => void;
+  private floorDetected = false;
   private readonly onNotice?: (message: string) => void;
 
   private mode: PresentationMode = "walkthrough";
@@ -174,6 +183,8 @@ export class ArchPresentationCore {
   private placementReticle: Mesh | null = null;
   private reticlePoint: Vector3 | null = null;
   private arPlaced = false;
+  private mixedScale = 1;
+  private readonly placementAnchor = new Vector3();
 
   // ---- thumbsticks
   private snapTurnArmed = true;
@@ -182,7 +193,18 @@ export class ArchPresentationCore {
   private readonly hands: HandState[] = [];
   private menu: Group | null = null;
   private readonly menuButtons: MenuButton[] = [];
+  private roomHotspots: Hotspot[] = [];
+  private roomPage = 0;
+  private menuView: "controls" | "rooms" = "controls";
   private menuVisible = false;
+  private menuHand: XRHandLike | null = null;
+  private touchBlockedUntil = 0;
+  private readonly buttonPoint = new Vector3();
+  private hoveredButton: MenuButton | null = null;
+  private activePointer: XRControllerLike | null = null;
+  private readonly normalMatrix = new Matrix3();
+  private readonly savedRigPosition = new Vector3();
+  private readonly savedRigQuaternion = new Quaternion();
 
   // ---- controllers
   private readonly controllers: XRControllerLike[] = [];
@@ -225,6 +247,9 @@ export class ArchPresentationCore {
     this.onInputModeChange = options.onInputModeChange;
     this.onHotspotSelect = options.onHotspotSelect;
     this.onPlaced = options.onPlaced;
+    this.onPlacementChange = options.onPlacementChange;
+    this.onScaleChange = options.onScaleChange;
+    this.onFloorDetected = options.onFloorDetected;
     this.onNotice = options.onNotice;
 
     this.walkAnchorPosition.copy(this.modelRoot.position);
@@ -260,7 +285,18 @@ export class ArchPresentationCore {
   setMode(mode: PresentationMode, immediate = false): void {
     if (this.disposed || mode === this.mode) return;
 
+    const session = this.renderer.xr.getSession();
+    if (session && mode !== "walkthrough") {
+      if (session.environmentBlendMode === "opaque") {
+        this.onNotice?.("Exit VR and enter Mixed Reality to detect your room floor.");
+        return;
+      }
+      mode = "ar";
+      if (mode === this.mode) return;
+    }
+
     this.mode = mode;
+    this.clearTeleportTarget();
 
     this.fromPosition.copy(this.modelRoot.position);
     this.fromScale = this.modelRoot.scale.x;
@@ -280,8 +316,8 @@ export class ArchPresentationCore {
       this.setPassthrough(true);
     } else if (mode === "ar") {
       this.toPosition.copy(this.arAnchorPosition);
-      this.toScale = this.walkScale;
-      this.arPlaced = false;
+      this.toScale = this.walkScale * this.mixedScale;
+      this.resetPlacement();
       // Nothing to look at until the user picks a floor point.
       this.modelRoot.visible = false;
       this.setPassthrough(true);
@@ -294,6 +330,7 @@ export class ArchPresentationCore {
 
     if (this.placementReticle) this.placementReticle.visible = false;
     this.reticlePoint = null;
+    this.setFloorDetected(false);
 
     this.transitionProgress = immediate ? 1 : 0;
     if (immediate) this.applyTransform(1);
@@ -321,31 +358,69 @@ export class ArchPresentationCore {
 
   /** Anchors the 1:1 model so `entryPoint` lands on `worldPoint`. */
   placeAt(worldPoint: Vector3): void {
-    this.vecA.copy(this.entryPoint).multiplyScalar(this.walkScale);
-    this.arAnchorPosition.copy(worldPoint).sub(this.vecA);
+    this.placementAnchor.copy(worldPoint);
+    this.vecA.copy(this.entryPoint).multiplyScalar(this.walkScale * this.mixedScale)
+      .applyQuaternion(this.modelRoot.quaternion);
+    this.arAnchorPosition.copy(this.placementAnchor).sub(this.vecA);
     this.arPlaced = true;
     this.modelRoot.visible = true;
 
     if (this.mode === "ar") {
       // Snap rather than tween: the user is standing where the building goes.
       this.modelRoot.position.copy(this.arAnchorPosition);
-      this.modelRoot.scale.setScalar(this.walkScale);
+      this.modelRoot.scale.setScalar(this.walkScale * this.mixedScale);
       this.toPosition.copy(this.arAnchorPosition);
-      this.toScale = this.walkScale;
+      this.toScale = this.walkScale * this.mixedScale;
       this.transitionProgress = 1;
     }
+    if (this.placementReticle) this.placementReticle.visible = false;
+    this.reticlePoint = null;
+    this.modelRoot.updateMatrixWorld(true);
+    this.setFloorDetected(false);
+    this.onPlacementChange?.(true);
     this.onPlaced?.();
+  }
+
+  getScale(): number {
+    return this.mixedScale;
+  }
+
+  setHotspots(hotspots: Hotspot[]): void {
+    this.roomHotspots = hotspots.slice(0, 40).map((hotspot) => ({
+      ...hotspot, position: { ...hotspot.position },
+    }));
+    this.roomPage = Math.min(this.roomPage, Math.max(0, Math.ceil(this.roomHotspots.length / 4) - 1));
+    if (this.menuView === "rooms") this.rebuildWristMenu();
+  }
+
+  placeOnDetectedFloor(): void {
+    if (this.mode === "ar" && !this.arPlaced && this.reticlePoint) {
+      this.placeAt(this.reticlePoint);
+    }
+  }
+
+  setScale(scale: number): void {
+    if (this.mode !== "ar" || !Number.isFinite(scale)) return;
+    this.mixedScale = Math.min(2, Math.max(0.02, scale));
+    this.toScale = this.walkScale * this.mixedScale;
+    if (this.arPlaced) this.placeAt(this.placementAnchor);
+    this.onScaleChange?.(this.mixedScale);
   }
 
   /** Forgets the AR anchor so the next tap places the model afresh. */
   resetPlacement(): void {
     this.arPlaced = false;
+    this.reticlePoint = null;
+    this.setFloorDetected(false);
+    this.clearTeleportTarget();
     if (this.mode === "ar") this.modelRoot.visible = false;
     if (this.placementReticle) this.placementReticle.visible = false;
+    this.onPlacementChange?.(false);
   }
 
   /** Moves the user to a hotspot, in XR or on the desktop rig. */
   goToHotspot(hotspot: Hotspot): void {
+    if (this.mode === "ar" && !this.arPlaced) return;
     const world = this.modelRoot.localToWorld(
       this.vecB.set(hotspot.position.x, hotspot.position.y, hotspot.position.z),
     );
@@ -379,12 +454,12 @@ export class ArchPresentationCore {
 
     const handsTracked = this.updateHands();
     if (!handsTracked) {
-      this.hideMenu();
-      this.updateControllerRay();
+      this.showControllerMenu();
       if (this.mode === "walkthrough") this.updateThumbsticks(deltaSeconds);
     } else if (this.inputMode !== "hands") {
       this.setInputMode("hands");
     }
+    this.updateControllerRay();
   }
 
   dispose(): void {
@@ -405,6 +480,7 @@ export class ArchPresentationCore {
 
     for (const hand of this.hands) {
       hand.object.removeEventListener("connected", this.onHandConnected);
+      disposeHierarchy(hand.object);
       hand.object.parent?.remove(hand.object);
     }
     this.hands.length = 0;
@@ -490,7 +566,7 @@ export class ArchPresentationCore {
    * and waits for a tap before anchoring the 1:1 model.
    */
   private updateHitTest(frame: XRFrame): void {
-    if (this.mode === "walkthrough") return;
+    if (this.mode === "walkthrough" || (this.mode === "ar" && this.arPlaced)) return;
 
     const session = this.renderer.xr.getSession();
     const referenceSpace = this.renderer.xr.getReferenceSpace();
@@ -499,26 +575,22 @@ export class ArchPresentationCore {
     if (!this.hitTestRequested) {
       this.hitTestRequested = true;
       if (typeof session.requestHitTestSource !== "function") {
-        this.onNotice?.(
-          this.mode === "ar"
-            ? "Surface detection is unavailable on this device, so the model is placed at your current position."
-            : "Surface detection is unavailable, so the dollhouse uses a fixed position in front of you.",
-        );
-        if (this.mode === "ar" && !this.arPlaced) this.placeAtUserFeet();
+        this.onNotice?.("Floor detection is unavailable. Open this space in a browser with WebXR hit-test support.");
         return;
       }
       void (async () => {
         try {
           this.viewerSpace = await session.requestReferenceSpace("viewer");
           const source = await session.requestHitTestSource?.({ space: this.viewerSpace });
-          if (this.disposed) {
+          if (this.disposed || this.renderer.xr.getSession() !== session) {
             source?.cancel?.();
             return;
           }
           this.hitTestSource = source ?? null;
         } catch {
-          this.onNotice?.("Surface detection was refused by the device.");
-          if (this.mode === "ar" && !this.arPlaced) this.placeAtUserFeet();
+          if (this.renderer.xr.getSession() === session) {
+            this.onNotice?.("Floor detection was refused. Exit and allow spatial tracking before trying again.");
+          }
         }
       })();
       return;
@@ -530,11 +602,26 @@ export class ArchPresentationCore {
     if (results.length === 0) {
       if (this.placementReticle) this.placementReticle.visible = false;
       this.reticlePoint = null;
+      this.setFloorDetected(false);
       return;
     }
 
-    const pose = results[0].getPose(referenceSpace);
-    if (!pose) return;
+    const pose = results.map((result) => result.getPose(referenceSpace)).find((candidate) => {
+      if (!candidate) return false;
+      if (this.mode !== "ar") return true;
+      this.worldQuaternion.set(
+        candidate.transform.orientation.x, candidate.transform.orientation.y,
+        candidate.transform.orientation.z, candidate.transform.orientation.w,
+      );
+      return this.vecC.set(0, 1, 0).applyQuaternion(this.worldQuaternion).y > 0.9
+        && Math.abs(candidate.transform.position.y) <= 0.3;
+    });
+    if (!pose) {
+      this.reticlePoint = null;
+      this.setFloorDetected(false);
+      if (this.placementReticle) this.placementReticle.visible = false;
+      return;
+    }
 
     // Hit poses are in the XR reference space, i.e. the rig's local frame.
     const { x, y, z } = pose.transform.position;
@@ -553,6 +640,7 @@ export class ArchPresentationCore {
 
     // AR: show where a tap would put the entrance.
     this.reticlePoint = (this.reticlePoint ?? new Vector3()).copy(world);
+    this.setFloorDetected(true);
     if (this.placementReticle) {
       this.placementReticle.visible = !this.arPlaced;
       this.placementReticle.position.copy(world);
@@ -560,21 +648,30 @@ export class ArchPresentationCore {
     }
   }
 
-  /** Fallback anchor: the model's entrance at the user's feet, facing forward. */
-  private placeAtUserFeet(): void {
-    this.camera.getWorldPosition(this.vecB);
-    this.vecB.y = this.playerRig.position.y;
-    this.placeAt(this.vecB);
+  private clearTeleportTarget(): void {
+    this.hoveredButton = null;
+    this.activePointer = null;
+    this.teleportPoint = null;
+    this.hoveredHotspot = null;
+    if (this.teleportMarker) this.teleportMarker.visible = false;
+  }
+
+  private setFloorDetected(detected: boolean): void {
+    if (detected === this.floorDetected) return;
+    this.floorDetected = detected;
+    this.onFloorDetected?.(detected);
   }
 
   // =============================================================== hands
 
   private setupHands(): void {
+    const factory = new XRHandModelFactory();
     for (let index = 0; index < 2; index += 1) {
       const hand = this.renderer.xr.getHand(index);
       hand.addEventListener("connected", this.onHandConnected);
+      hand.add(factory.createHandModel(hand, "spheres"));
       this.playerRig.add(hand);
-      this.hands.push({ object: hand, pinching: false, pressedButton: null });
+      this.hands.push({ object: hand, touchedButton: null, releasePoint: null });
     }
   }
 
@@ -598,14 +695,16 @@ export class ArchPresentationCore {
 
     // The wrist menu lives on the left hand, per the presentation spec.
     const menuHand = left ?? this.hands.find((h) => this.getJoint(h.object, WRIST))?.object ?? null;
+    this.menuHand = menuHand;
     if (menuHand) this.updateWristMenu(menuHand);
 
-    for (const state of this.hands) this.updatePinch(state);
+    for (const state of this.hands) this.updateHandTouch(state);
 
     return true;
   }
 
   private getJoint(hand: XRHandLike, name: string): Object3D | null {
+    if (!hand.visible) return null;
     // `joints` is keyed by the `XRHandJoint` union; widen it so the joint-name
     // constants above can be used directly.
     const joints = hand.joints as Record<string, Object3D | undefined> | undefined;
@@ -676,7 +775,7 @@ export class ArchPresentationCore {
 
     // Highlight the button matching the active mode.
     for (const button of this.menuButtons) {
-      const active = button.mode === this.mode;
+      const active = button.action === this.mode;
       button.material.emissiveIntensity = active ? 0.85 : 0.25;
     }
   }
@@ -685,62 +784,99 @@ export class ArchPresentationCore {
     if (!this.menu || !this.menuVisible) return;
     this.menu.visible = false;
     this.menuVisible = false;
-    for (const state of this.hands) state.pressedButton = null;
+    for (const state of this.hands) state.touchedButton = null;
   }
 
-  /** Pinch = index tip and thumb tip closer than 2cm, with release hysteresis. */
-  private updatePinch(state: HandState): void {
+  private updateHandTouch(state: HandState): void {
     const indexTip = this.getJoint(state.object, INDEX_TIP);
-    const thumbTip = this.getJoint(state.object, THUMB_TIP);
-
-    if (!indexTip || !thumbTip) {
-      state.pinching = false;
-      state.pressedButton = null;
+    if (!indexTip || !this.menuVisible || state.object === this.menuHand) {
+      state.touchedButton = null;
+      state.releasePoint = null;
       return;
     }
-
     indexTip.getWorldPosition(this.vecA);
-    thumbTip.getWorldPosition(this.vecB);
-    const distance = this.vecA.distanceTo(this.vecB);
-
-    // Pinch point is the midpoint between the two tips.
-    const pinchPoint = this.vecC.copy(this.vecA).add(this.vecB).multiplyScalar(0.5);
-
-    if (!state.pinching && distance < PINCH_ENGAGE_METRES) {
-      state.pinching = true;
-      state.pressedButton = this.menuVisible ? this.findButtonAt(pinchPoint) : null;
-      if (state.pressedButton) {
-        state.pressedButton.material.emissive.setHex(0xffffff);
-      }
+    if (state.releasePoint) {
+      if (state.releasePoint.distanceTo(this.vecA) < 0.065) return;
+      state.touchedButton = null;
+      state.releasePoint = null;
+      this.touchBlockedUntil = performance.now() + 250;
       return;
     }
-
-    if (state.pinching && distance > PINCH_RELEASE_METRES) {
-      state.pinching = false;
-      const button = state.pressedButton;
-      state.pressedButton = null;
-      if (!button) return;
-
-      button.material.emissive.setHex(0x5b8cff);
-      // Release must land on the same button that was pressed.
-      if (this.menuVisible && this.findButtonAt(pinchPoint) === button) {
-        this.setMode(button.mode);
-      }
+    const button = this.findButtonAt(this.vecA);
+    if (button && performance.now() >= this.touchBlockedUntil) {
+      state.touchedButton = button;
+      state.releasePoint = this.vecA.clone();
+      this.touchBlockedUntil = performance.now() + 350;
+      this.controllerSelecting.clear();
+      this.clearTeleportTarget();
+      this.activateButton(button);
     }
   }
 
   private findButtonAt(worldPoint: Vector3): MenuButton | null {
-    let closest: MenuButton | null = null;
-    let closestDistance = BUTTON_HIT_RADIUS;
-
     for (const button of this.menuButtons) {
-      const distance = button.root.getWorldPosition(this.vecA).distanceTo(worldPoint);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closest = button;
-      }
+      this.buttonPoint.copy(worldPoint);
+      button.root.worldToLocal(this.buttonPoint);
+      if (Math.abs(this.buttonPoint.x) <= 0.05 && Math.abs(this.buttonPoint.y) <= 0.0225
+        && Math.abs(this.buttonPoint.z) <= 0.018) return button;
     }
-    return closest;
+    return null;
+  }
+
+  private activateButton(button: MenuButton): void {
+    switch (button.action) {
+      case "rooms":
+        this.menuView = "rooms";
+        this.roomPage = 0;
+        this.rebuildWristMenu();
+        break;
+      case "controls":
+        this.menuView = "controls";
+        this.rebuildWristMenu();
+        break;
+      case "previous":
+        this.roomPage = Math.max(0, this.roomPage - 1);
+        this.rebuildWristMenu();
+        break;
+      case "next":
+        this.roomPage = Math.min(Math.max(0, Math.ceil(this.roomHotspots.length / 4) - 1), this.roomPage + 1);
+        this.rebuildWristMenu();
+        break;
+      case "hotspot":
+        if (button.hotspot && (this.mode === "walkthrough" || (this.mode === "ar" && this.arPlaced))) {
+          this.goToHotspot(button.hotspot);
+          this.onHotspotSelect?.(button.hotspot);
+        }
+        break;
+      case "empty": break;
+      case "ar": this.setMode("ar"); break;
+      case "walkthrough": this.setMode("walkthrough"); break;
+      case "smaller": this.setScale(this.mixedScale / 1.25); break;
+      case "larger": this.setScale(this.mixedScale * 1.25); break;
+      case "actual": this.setScale(1); break;
+      case "place": if (this.mode === "ar") this.resetPlacement(); break;
+      case "exit": void this.renderer.xr.getSession()?.end().catch(() => {
+        this.onNotice?.("Could not exit the session. Use your headset's system menu.");
+      }); break;
+    }
+  }
+
+  private showControllerMenu(): void {
+    if (!this.menu) return;
+    const sources = this.renderer.xr.getSession()?.inputSources;
+    if (!sources || !Array.from(sources).some((source) => source.gamepad && !source.hand)) {
+      this.hideMenu();
+      return;
+    }
+    this.menuHand = null;
+    this.camera.getWorldPosition(this.vecA);
+    this.camera.getWorldDirection(this.vecB);
+    this.menu.position.copy(this.vecA).addScaledVector(this.vecB, 0.65);
+    this.menu.position.y -= 0.22;
+    this.menu.parent?.worldToLocal(this.menu.position);
+    this.menu.lookAt(this.vecA);
+    this.menu.visible = true;
+    this.menuVisible = true;
   }
 
   private buildWristMenu(): void {
@@ -750,19 +886,35 @@ export class ArchPresentationCore {
     // Renders after the scene so the panel is never occluded by the building.
     menu.renderOrder = 999;
 
-    const definitions: Array<{ mode: PresentationMode; label: string; x: number }> = [
-      { mode: "dollhouse", label: "Dollhouse View", x: -0.045 },
-      { mode: "walkthrough", label: "1:1 Scale Walk", x: 0.045 },
+    const definitions: Array<{ action: MenuAction; label: string; hotspot?: Hotspot }> = this.menuView === "rooms" ? [
+      { action: "controls", label: "Controls" },
+      { action: "empty", label: `Rooms ${this.roomPage + 1}/${Math.max(1, Math.ceil(this.roomHotspots.length / 4))}` },
+      ...Array.from({ length: 4 }, (_, index) => {
+        const hotspot = this.roomHotspots[this.roomPage * 4 + index];
+        return hotspot ? { action: "hotspot" as const, label: hotspot.label, hotspot }
+          : { action: "empty" as const, label: index === 0 && this.roomHotspots.length === 0 ? "No hotspots" : "" };
+      }),
+      { action: "previous", label: "<" },
+      { action: "next", label: ">" },
+    ] : [
+      { action: "ar", label: "Mixed Reality" },
+      { action: "walkthrough", label: "VR Walk" },
+      { action: "smaller", label: "-" },
+      { action: "larger", label: "+" },
+      { action: "actual", label: "1:1" },
+      { action: "place", label: "Re-place" },
+      { action: "exit", label: "Exit XR" },
+      { action: "rooms", label: "Rooms" },
     ];
 
-    for (const definition of definitions) {
+    for (const [index, definition] of definitions.entries()) {
       const root = new Group();
-      root.position.x = definition.x;
+      root.position.set((index % 2 === 0 ? -1 : 1) * 0.06, 0.19 - Math.floor(index / 2) * 0.055, 0);
 
       const material = new MeshStandardMaterial({
         map: createLabelTexture(definition.label),
         transparent: true,
-        emissive: new Color(0x5b8cff),
+        emissive: new Color(0x36bfa6),
         emissiveIntensity: 0.25,
         roughness: 0.4,
         metalness: 0,
@@ -770,17 +922,38 @@ export class ArchPresentationCore {
         depthTest: false,
       });
 
-      const mesh = new Mesh(new PlaneGeometry(0.08, 0.04), material);
+      const mesh = new Mesh(new PlaneGeometry(0.1, 0.045), material);
       mesh.renderOrder = 1000;
       root.add(mesh);
       menu.add(root);
 
-      this.menuButtons.push({ root, mesh, material, mode: definition.mode, label: definition.label });
+      this.menuButtons.push({ root, mesh, material, action: definition.action, label: definition.label, hotspot: definition.hotspot });
     }
 
     // Parented to the rig so the menu inherits teleports and rig rotation.
     this.playerRig.add(menu);
     this.menu = menu;
+  }
+
+  private rebuildWristMenu(): void {
+    const previous = this.menu;
+    for (const button of this.menuButtons) {
+      button.mesh.geometry.dispose();
+      button.material.map?.dispose();
+      button.material.dispose();
+    }
+    this.menuButtons.length = 0;
+    this.clearTeleportTarget();
+    this.controllerSelecting.clear();
+    for (const hand of this.hands) hand.touchedButton = null;
+    this.touchBlockedUntil = performance.now() + 500;
+    this.buildWristMenu();
+    if (previous && this.menu) {
+      this.menu.position.copy(previous.position);
+      this.menu.quaternion.copy(previous.quaternion);
+      this.menu.visible = previous.visible;
+      previous.parent?.remove(previous);
+    }
   }
 
   // ========================================================= controllers
@@ -797,36 +970,59 @@ export class ArchPresentationCore {
     }
   }
 
-  private readonly onControllerConnected = (event: { data?: XRInputSource }) => {
+  private readonly onControllerConnected = (event: { target?: unknown; data?: XRInputSource }) => {
+    const controller = event.target as XRControllerLike | undefined;
+    if (controller) controller.userData.source = event.data;
     // A hand-tracked input source also produces a controller object; only
     // physical controllers should switch the input mode.
     if (event.data && !event.data.hand) this.setInputMode("controllers");
   };
 
-  private readonly onControllerDisconnected = () => {
+  private readonly onControllerDisconnected = (event: { target?: unknown }) => {
+    const controller = event.target as XRControllerLike | undefined;
+    if (controller) {
+      this.controllerSelecting.delete(controller);
+      delete controller.userData.source;
+    }
+    this.clearTeleportTarget();
     this.detectInputMode();
   };
 
   private readonly onSelectStart = (event: { target?: unknown }) => {
+    if (performance.now() < this.touchBlockedUntil
+      || this.hands.some((hand) => hand.touchedButton)) return;
     const controller = event.target as XRControllerLike | undefined;
     if (controller) this.controllerSelecting.add(controller);
   };
 
   private readonly onSelectEnd = (event: { target?: unknown }) => {
     const controller = event.target as XRControllerLike | undefined;
-    if (controller) this.controllerSelecting.delete(controller);
+    if (!controller || !this.controllerSelecting.has(controller)) return;
+    this.updateControllerRay();
+    const ownsTarget = this.activePointer === controller;
+    this.controllerSelecting.delete(controller);
+    if (!ownsTarget) return;
+    if (performance.now() < this.touchBlockedUntil
+      || this.hands.some((hand) => hand.touchedButton)) {
+      this.clearTeleportTarget();
+      return;
+    }
+    if (this.hoveredButton) {
+      const button = this.hoveredButton;
+      this.clearTeleportTarget();
+      this.activateButton(button);
+      return;
+    }
 
     // AR: a tap (screen or trigger) anchors the model on the reticle.
-    if (this.mode === "ar") {
-      if (this.reticlePoint && !this.arPlaced) this.placeAt(this.reticlePoint);
+    if (this.mode === "ar" && !this.arPlaced) {
+      this.placeOnDetectedFloor();
       return;
     }
 
     if (this.hoveredHotspot) {
       const hotspot = this.hoveredHotspot;
-      this.hoveredHotspot = null;
-      this.teleportPoint = null;
-      if (this.teleportMarker) this.teleportMarker.visible = false;
+      this.clearTeleportTarget();
       this.goToHotspot(hotspot);
       this.onHotspotSelect?.(hotspot);
       return;
@@ -834,9 +1030,8 @@ export class ArchPresentationCore {
 
     if (this.teleportPoint) {
       this.teleportRigTo(this.teleportPoint);
-      this.teleportPoint = null;
     }
-    if (this.teleportMarker) this.teleportMarker.visible = false;
+    this.clearTeleportTarget();
   };
 
   /**
@@ -844,17 +1039,16 @@ export class ArchPresentationCore {
    * priority, then walkable floor for teleporting.
    */
   private updateControllerRay(): void {
-    if (this.controllerSelecting.size === 0 || this.mode === "ar") {
-      if (this.teleportMarker) this.teleportMarker.visible = false;
-      this.teleportPoint = null;
-      this.hoveredHotspot = null;
+    this.clearTeleportTarget();
+    if (this.controllerSelecting.size === 0) {
       return;
     }
 
     const controller = this.controllerSelecting.values().next().value as
       | XRControllerLike
       | undefined;
-    if (!controller) return;
+    if (!controller || !controller.visible) return;
+    this.activePointer = controller;
 
     controller.getWorldPosition(this.rayOrigin);
     controller.getWorldQuaternion(this.worldQuaternion);
@@ -862,6 +1056,17 @@ export class ArchPresentationCore {
 
     this.raycaster.set(this.rayOrigin, this.rayDirection);
     this.raycaster.far = 40;
+
+    if (this.menuVisible && this.menu) {
+      this.menu.updateWorldMatrix(true, true);
+      const menuHit = this.raycaster.intersectObjects(this.menuButtons.map((button) => button.mesh), false)[0];
+      this.hoveredButton = this.menuButtons.find((button) => button.mesh === menuHit?.object) ?? null;
+      if (this.hoveredButton) {
+        this.hoveredButton.material.emissiveIntensity = 1.3;
+        return;
+      }
+    }
+    if (this.mode === "dollhouse" || (this.mode === "ar" && !this.arPlaced)) return;
 
     this.hoveredHotspot = this.hotspots?.hitTest(this.raycaster) ?? null;
     if (this.hoveredHotspot) {
@@ -872,10 +1077,13 @@ export class ArchPresentationCore {
 
     if (this.teleportSurfaces.length === 0) return;
 
-    const hits = this.raycaster.intersectObjects(this.teleportSurfaces, false);
-    const hit = hits.find((candidate) => candidate.face && candidate.face.normal.y !== 0);
+    this.modelRoot.updateWorldMatrix(true, true);
+    const hit = this.raycaster.intersectObject(this.modelRoot, true)
+      .find((candidate) => (candidate.object as Mesh).isMesh);
 
-    if (!hit) {
+    if (!hit?.face || !this.teleportSurfaces.includes(hit.object as Mesh)
+      || Math.abs(this.vecC.copy(hit.face.normal)
+        .applyMatrix3(this.normalMatrix.getNormalMatrix(hit.object.matrixWorld)).normalize().y) < 0.966) {
       if (this.teleportMarker) this.teleportMarker.visible = false;
       this.teleportPoint = null;
       return;
@@ -963,6 +1171,18 @@ export class ArchPresentationCore {
    * be offset from the play-space origin.
    */
   private teleportRigTo(point: Vector3, yaw?: number): void {
+    if (this.mode === "ar") {
+      if (!this.arPlaced) return;
+      this.camera.getWorldPosition(this.vecA);
+      this.vecA.y = this.playerRig.position.y;
+      this.vecA.sub(point);
+      this.modelRoot.position.add(this.vecA);
+      this.placementAnchor.add(this.vecA);
+      this.arAnchorPosition.copy(this.modelRoot.position);
+      this.toPosition.copy(this.modelRoot.position);
+      this.modelRoot.updateMatrixWorld(true);
+      return;
+    }
     if (yaw !== undefined) {
       // Turn first so the head offset below is measured in the new heading.
       this.camera.getWorldDirection(this.vecC);
@@ -1003,6 +1223,10 @@ export class ArchPresentationCore {
   // ============================================================ sessions
 
   private readonly onSessionStart = () => {
+    this.savedRigPosition.copy(this.playerRig.position);
+    this.savedRigQuaternion.copy(this.playerRig.quaternion);
+    this.mixedScale = 1;
+    this.onScaleChange?.(1);
     this.locomotion?.setEnabled(false);
     this.hitTestRequested = false;
     this.hitTestSource = null;
@@ -1019,11 +1243,17 @@ export class ArchPresentationCore {
     this.viewerSpace = null;
     this.hideMenu();
     this.controllerSelecting.clear();
+    this.clearTeleportTarget();
+    this.dollhouseAnchorFromHitTest = false;
+    this.playerRig.position.copy(this.savedRigPosition);
+    this.playerRig.quaternion.copy(this.savedRigQuaternion);
     this.hoveredHotspot = null;
     if (this.teleportMarker) this.teleportMarker.visible = false;
     if (this.placementReticle) this.placementReticle.visible = false;
     this.reticlePoint = null;
     this.arPlaced = false;
+    this.setFloorDetected(false);
+    this.onPlacementChange?.(false);
     this.modelRoot.visible = true;
 
     // Leaving XR always returns to the fully virtual 1:1 view.
@@ -1082,13 +1312,13 @@ function createLabelTexture(label: string): CanvasTexture {
 
   context.beginPath();
   context.roundRect(8, 8, width - 16, height - 16, radius);
-  context.fillStyle = "rgba(10, 16, 32, 0.82)";
+  context.fillStyle = "rgba(16, 20, 21, 0.94)";
   context.fill();
   context.lineWidth = 6;
-  context.strokeStyle = "rgba(120, 165, 255, 0.9)";
+  context.strokeStyle = "rgba(54, 191, 166, 0.9)";
   context.stroke();
 
-  context.fillStyle = "#eaf0ff";
+  context.fillStyle = "#f3f7f5";
   context.font = "600 44px system-ui, -apple-system, 'Segoe UI', sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
@@ -1099,7 +1329,7 @@ function createLabelTexture(label: string): CanvasTexture {
   const lineHeight = 52;
   const startY = height / 2 - ((lines.length - 1) * lineHeight) / 2;
   lines.forEach((line, index) => {
-    context.fillText(line, width / 2, startY + index * lineHeight);
+    context.fillText(line, width / 2, startY + index * lineHeight, width - 48);
   });
 
   const texture = new CanvasTexture(canvas);

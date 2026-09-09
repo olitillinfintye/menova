@@ -1,33 +1,32 @@
 @import "tailwindcss";
 
 @theme {
-  /* Deep navy base, Menova gold accent, off-white light sections. */
-  --color-canvas: #16163a;
-  --color-surface: #1e1e4a;
-  --color-surface-2: #262659;
-  --color-surface-3: #2f2f6a;
-  --color-line: #2e2e66;
-  --color-line-strong: #3f3f86;
-  --color-accent: #c9962a;
-  --color-accent-strong: #a87b1c;
-  --color-accent-soft: #2c2748;
-  --color-lavender: #e2b85f;
-  --color-lavender-soft: #faf3e3;
+  --color-canvas: #101415;
+  --color-surface: #1a2021;
+  --color-surface-2: #242c2d;
+  --color-surface-3: #303a3b;
+  --color-line: #303a3b;
+  --color-line-strong: #536360;
+  --color-accent: #36bfa6;
+  --color-accent-strong: #157c6a;
+  --color-accent-soft: #1b3833;
+  --color-lavender: #ee987c;
+  --color-lavender-soft: #e4f4ef;
   --color-mint: #86efac;
   --color-lime: #d4f56a;
-  --color-ink: #f4f3fb;
-  --color-muted: #a6a4c9;
-  --color-paper: #f7f6fb;
+  --color-ink: #f3f7f5;
+  --color-muted: #a9b8b4;
+  --color-paper: #f2f6f3;
   --color-paper-2: #ffffff;
-  --color-navy: #1b1b3f;
-  --color-navy-muted: #5a5a7d;
+  --color-navy: #132421;
+  --color-navy-muted: #526760;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     sans-serif;
   --font-display: var(--font-jakarta), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --shadow-glow: 0 0 0 1px rgb(201 150 42 / 0.35), 0 20px 60px -20px rgb(201 150 42 / 0.55);
+  --shadow-glow: 0 0 0 1px rgb(54 191 166 / 0.35), 0 20px 60px -20px rgb(54 191 166 / 0.3);
   --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 24px 48px -24px rgb(0 0 0 / 0.6);
   --shadow-paper: 0 30px 80px -30px rgb(27 27 63 / 0.35);
 
@@ -87,6 +86,14 @@
 html,
 body {
   height: 100%;
+}
+
+body :is(h1, h2, h3, p, a, button, span) {
+  letter-spacing: 0;
+}
+
+body :is(.rounded-xl, .rounded-2xl, .rounded-3xl, .card) {
+  border-radius: 8px;
 }
 
 html {
@@ -150,7 +157,7 @@ body:has(canvas[data-menova-viewer]) {
 }
 
 @utility glass {
-  background: rgb(30 30 74 / 0.72);
+  background: rgb(20 28 27 / 0.88);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
   border: 1px solid rgb(255 255 255 / 0.08);
@@ -182,12 +189,12 @@ body:has(canvas[data-menova-viewer]) {
 }
 
 @utility accent-gradient {
-  background-image: linear-gradient(135deg, #d9a640 0%, #b8871f 100%);
+  background-image: linear-gradient(135deg, #208b78 0%, #166958 100%);
 }
 
 /* Parallelogram button: the right edge is cut at an angle. */
 @utility btn-slant {
-  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+  border-radius: 6px;
   padding-right: 1.75rem;
 }
 

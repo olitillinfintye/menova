@@ -27,6 +27,7 @@ import { CaptureError, captureHighResolutionPng } from "@/src/viewer/capture";
 import { Locomotion } from "@/src/viewer/Locomotion";
 import { ModelLoadError, loadModel } from "@/src/viewer/loadModel";
 import { HotspotLayer } from "@/src/viewer/Hotspots";
+import { exportQuickLook, supportsQuickLook } from "@/src/viewer/quickLook";
 import type { ModelFormat } from "@/lib/constants";
 import type { Hotspot } from "@/lib/types";
 import {
@@ -40,7 +41,7 @@ import {
 export type XrSessionMode = "immersive-vr" | "immersive-ar";
 
 export interface EnterXrOptions {
-  /** Mode to open in. Defaults to walkthrough for VR and dollhouse for AR. */
+  /** Mode to open in. Defaults to walkthrough for VR and floor placement for AR. */
   presentation?: PresentationMode;
   /** DOM element kept visible over the camera feed on phones (`dom-overlay`). */
   overlayRoot?: HTMLElement | null;
@@ -52,6 +53,7 @@ export interface ViewerApi {
   setMode: (mode: PresentationMode) => void;
   toggleMode: () => void;
   enterXR: (mode: XrSessionMode, options?: EnterXrOptions) => Promise<void>;
+  prepareQuickLook: () => Promise<string>;
   exitXR: () => Promise<void>;
   /** Replaces the rendered hotspot markers. */
   setHotspots: (hotspots: Hotspot[]) => void;
@@ -61,6 +63,8 @@ export interface ViewerApi {
   getPose: () => { position: { x: number; y: number; z: number }; yaw: number };
   /** Forget the AR anchor so the next tap re-places the model. */
   resetPlacement: () => void;
+  setScale: (scale: number) => void;
+  placeOnDetectedFloor: () => void;
 }
 
 export interface ViewerCanvasProps {
@@ -77,7 +81,10 @@ export interface ViewerCanvasProps {
   onInputModeChange: (mode: InputMode) => void;
   onHotspotSelect: (hotspot: Hotspot) => void;
   onPlaced: () => void;
-  onXrSupport: (support: { vr: boolean; ar: boolean }) => void;
+  onPlacementChange: (placed: boolean) => void;
+  onScaleChange: (scale: number) => void;
+  onFloorDetected: (detected: boolean) => void;
+  onXrSupport: (support: { vr: boolean; ar: boolean; quickLook: boolean }) => void;
   onXrPresentingChange: (presenting: boolean) => void;
   onReady: (api: ViewerApi) => void;
 }
@@ -127,6 +134,8 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
 
     const abortController = new AbortController();
     let disposed = false;
+    let quickLookUrl: string | null = null;
+    let quickLookExport: Promise<string> | null = null;
 
     // ---------------------------------------------------------- renderer
     let renderer: WebGLRenderer;
@@ -244,16 +253,14 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
       if (currentSession) await endSession();
 
       const optionalFeatures = [
-        "local-floor",
         "bounded-floor",
         "hand-tracking",
         "layers",
-        ...(mode === "immersive-ar" ? ["hit-test", "plane-detection", "anchors"] : []),
         ...(options.overlayRoot ? ["dom-overlay"] : []),
       ];
 
       const session = await navigator.xr.requestSession(mode, {
-        requiredFeatures: ["local-floor"],
+        requiredFeatures: ["local-floor", ...(mode === "immersive-ar" ? ["hit-test"] : [])],
         optionalFeatures,
         ...(options.overlayRoot ? { domOverlay: { root: options.overlayRoot } } : {}),
       });
@@ -264,26 +271,30 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
         propsRef.current.onXrPresentingChange(false);
       });
 
-      await renderer.xr.setSession(session);
-      propsRef.current.onXrPresentingChange(true);
-
-      // Mixed reality defaults to the miniature; VR to 1:1.
-      presentation?.setMode(
-        options.presentation ?? (mode === "immersive-ar" ? "dollhouse" : "walkthrough"),
-        true,
-      );
+      try {
+        await renderer.xr.setSession(session);
+        propsRef.current.onXrPresentingChange(true);
+        presentation?.setMode(
+          mode === "immersive-ar" ? "ar" : (options.presentation ?? "walkthrough"),
+          true,
+        );
+      } catch (error) {
+        await session.end().catch(() => undefined);
+        throw error;
+      }
     };
 
     void (async () => {
+      const quickLook = supportsQuickLook();
       if (!navigator.xr) {
-        propsRef.current.onXrSupport({ vr: false, ar: false });
+        propsRef.current.onXrSupport({ vr: false, ar: false, quickLook });
         return;
       }
       const [vr, ar] = await Promise.all([
         navigator.xr.isSessionSupported("immersive-vr").catch(() => false),
         navigator.xr.isSessionSupported("immersive-ar").catch(() => false),
       ]);
-      if (!disposed) propsRef.current.onXrSupport({ vr, ar });
+      if (!disposed) propsRef.current.onXrSupport({ vr, ar, quickLook });
     })();
 
     // ------------------------------------------------------- model load
@@ -360,6 +371,9 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
           onInputModeChange: (mode) => propsRef.current.onInputModeChange(mode),
           onHotspotSelect: (hotspot) => propsRef.current.onHotspotSelect(hotspot),
           onPlaced: () => propsRef.current.onPlaced(),
+          onPlacementChange: (placed) => propsRef.current.onPlacementChange(placed),
+          onScaleChange: (scale) => propsRef.current.onScaleChange(scale),
+          onFloorDetected: (detected) => propsRef.current.onFloorDetected(detected),
           onNotice: (message) => propsRef.current.onNotice(message),
         });
 
@@ -370,6 +384,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
           );
         };
         applyEntryPoint(propsRef.current.hotspots);
+        presentation.setHotspots(propsRef.current.hotspots);
 
         const api: ViewerApi = {
           capture4K: async () => {
@@ -389,9 +404,24 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
           setMode: (mode) => presentation?.setMode(mode),
           toggleMode: () => presentation?.toggleMode(),
           enterXR,
+          prepareQuickLook: () => {
+            if (disposed) return Promise.reject(new Error("This viewer has closed."));
+            if (!quickLookExport) {
+              quickLookExport = exportQuickLook(loaded).then((blob) => {
+                if (disposed) throw new Error("This viewer has closed.");
+                quickLookUrl = URL.createObjectURL(blob);
+                return quickLookUrl;
+              }).catch((error: unknown) => {
+                quickLookExport = null;
+                throw error;
+              });
+            }
+            return quickLookExport;
+          },
           exitXR: endSession,
           setHotspots: (hotspots) => {
             hotspotLayer?.setHotspots(hotspots);
+            presentation?.setHotspots(hotspots);
             applyEntryPoint(hotspots);
           },
           goToHotspot: (hotspot) => presentation?.goToHotspot(hotspot),
@@ -408,6 +438,8 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
             };
           },
           resetPlacement: () => presentation?.resetPlacement(),
+          setScale: (scale) => presentation?.setScale(scale),
+          placeOnDetectedFloor: () => presentation?.placeOnDetectedFloor(),
         };
 
         propsRef.current.onReady(api);
@@ -426,6 +458,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
     return () => {
       disposed = true;
       abortController.abort();
+      if (quickLookUrl) URL.revokeObjectURL(quickLookUrl);
 
       renderer.setAnimationLoop(null);
       void endSession();

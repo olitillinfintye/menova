@@ -80,8 +80,6 @@ const WORKFLOW = [
   },
 ];
 
-const PARTNERS = ["Northgate Homes", "Atelier Ward", "Brixton & Co", "Halden Property", "Marlow Living", "Studio Kite"];
-
 function Icon({ children, className = "h-6 w-6" }: { children: React.ReactNode; className?: string }) {
   return (
     <svg
@@ -105,39 +103,43 @@ export default function HomePage() {
   return (
     <>
       {/* ============================ LIGHT HERO ============================ */}
-      <div className="relative overflow-hidden bg-[var(--color-paper)] text-[var(--color-navy)]">
-        <div aria-hidden="true" className="bg-grid-light pointer-events-none absolute inset-0" />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -top-40 right-[-10rem] h-[36rem] w-[36rem] rounded-full bg-[var(--color-lavender)] opacity-40 blur-[140px]"
+      <div className="relative overflow-hidden bg-[var(--color-canvas)] text-[var(--color-ink)]">
+        <video
+          className="absolute inset-0 h-full w-full object-cover"
+          autoPlay muted loop playsInline preload="metadata"
+          aria-label="Archviz architectural interior walkthrough"
+          src={WALKTHROUGH_VIDEO}
         />
+        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/60" />
 
-        <SiteNav current="home" tone="light" />
+        <SiteNav current="home" tone="dark" />
 
         <main className="relative mx-auto w-full max-w-6xl px-5 sm:px-8">
-          <section className="pt-10 pb-20 text-center sm:pt-16 lg:pt-20 lg:pb-24">
-            <h1 className="font-display animate-fade-up mx-auto max-w-4xl text-[2.75rem] leading-[1.02] font-extrabold tracking-[-0.035em] sm:text-6xl lg:text-[5.25rem]">
-              Your clients can&apos;t read plans.
+          <section className="flex min-h-[min(36rem,68svh)] flex-col items-start justify-end pt-20 pb-12 sm:pb-16">
+            <p className="text-sm font-medium text-white/80">Architectural visualization</p>
+            <h1 className="font-display animate-fade-up mt-3 text-6xl leading-none font-bold sm:text-8xl">
+              Archviz
             </h1>
-            <p className="animate-fade-up mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-[var(--color-navy-muted)] [animation-delay:80ms] sm:text-xl">
-              Upload a 3D model. They walk the home like it was already built.
+            <p className="animate-fade-up mt-5 max-w-lg text-lg leading-relaxed text-white/90 [animation-delay:80ms]">
+              Your architecture, experienced at full scale. From a shared model to a room you can step inside.
             </p>
-            <div className="animate-fade-up mt-9 flex flex-wrap items-center justify-center gap-3 [animation-delay:140ms]">
+            <div className="animate-fade-up mt-7 flex flex-wrap items-center gap-3 [animation-delay:140ms]">
               <Link
                 href="/dashboard"
-                className="ring-focus btn-slant inline-flex items-center gap-2 bg-[var(--color-navy)] py-3.5 pl-6 text-sm font-semibold text-white transition hover:bg-[var(--color-accent-strong)]"
+                className="ring-focus btn-slant accent-gradient inline-flex items-center gap-2 py-3.5 pl-6 text-sm font-semibold text-white transition hover:brightness-110"
               >
-                Get Started
+                Open workspace
                 <Arrow />
               </Link>
               <Link
                 href="#workflow"
-                className="ring-focus inline-flex items-center gap-2 rounded-md px-5 py-3.5 text-sm font-semibold text-[var(--color-navy)] transition hover:text-[var(--color-accent-strong)]"
+                className="ring-focus inline-flex items-center gap-2 rounded-md px-5 py-3.5 text-sm font-semibold text-white transition hover:text-[var(--color-accent)]"
               >
                 See how it works
                 <Arrow className="h-3.5 w-3.5" />
               </Link>
             </div>
+            <p className="mt-8 text-xs text-white/65">Powered by Menova Studio</p>
           </section>
         </main>
       </div>
@@ -159,21 +161,6 @@ export default function HomePage() {
               </p>
             </DeviceShowcase>
 
-            <div className="mt-16 border-t border-white/10 pt-8">
-              <p className="text-center text-xs font-medium tracking-[0.18em] text-[var(--color-muted)] uppercase">
-                Trusted by builders, architects and agents
-              </p>
-              <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
-                {PARTNERS.map((partner) => (
-                  <li
-                    key={partner}
-                    className="font-display text-base font-bold tracking-tight text-[var(--color-ink)]/40"
-                  >
-                    {partner}
-                  </li>
-                ))}
-              </ul>
-            </div>
           </section>
           {/* --------------------------- solutions -------------------------- */}
           <section id="solutions" className="scroll-mt-24 py-24">
@@ -184,7 +171,7 @@ export default function HomePage() {
                 <span className="text-highlight">Five ways</span> to close the gap.
               </h2>
               <p className="max-w-xl text-base leading-relaxed text-[var(--color-muted)] lg:justify-self-end">
-                From sign-off to sales, Menova turns your existing 3D models into walkable experiences
+                From sign-off to sales, Archviz turns your existing 3D models into walkable experiences
                 your clients can understand, share and decide from.
               </p>
             </div>
@@ -219,7 +206,7 @@ export default function HomePage() {
           {/* --------------------------- workflow --------------------------- */}
           <section id="workflow" className="scroll-mt-24 pb-24">
             <span className="eyebrow">The workflow</span>
-            <div className="mt-6 grid gap-10 lg:grid-cols-[1fr_1.3fr]">
+            <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
               <div>
                 <h2 className="font-display text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl">
                   From what you have.
@@ -227,7 +214,7 @@ export default function HomePage() {
                   <span className="text-highlight">To what they can walk through.</span>
                 </h2>
                 <p className="mt-6 max-w-md text-base leading-relaxed text-[var(--color-muted)]">
-                  Upload a 3D model and Menova turns it into a walkable Space your clients can open,
+                  Upload a 3D model and Archviz turns it into a walkable space your clients can open,
                   share and decide from — with renders created from the same source.
                 </p>
                 <Link
@@ -239,16 +226,16 @@ export default function HomePage() {
                 </Link>
               </div>
 
-              <div className="paper rounded-[1.75rem] p-6 sm:p-8">
+              <div className="min-w-0 border-t border-[var(--color-line)] pt-8">
                 <ol className="space-y-8">
                   {WORKFLOW.map((step, index) => (
-                    <li key={step.number} className="grid gap-4 sm:grid-cols-[3rem_1fr]">
+                    <li key={step.number} className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[3rem_minmax(0,1fr)]">
                       <span className="font-display text-sm font-bold text-[var(--color-accent-strong)]">
                         {step.number}
                       </span>
                       <div>
                         <h3 className="font-display text-xl font-bold tracking-tight">{step.title}</h3>
-                        <p className="mt-2 text-sm leading-relaxed text-[var(--color-navy-muted)]">{step.body}</p>
+                        <p className="mt-2 text-sm leading-relaxed text-[var(--color-muted)]">{step.body}</p>
 
                         {index === 0 && (
                           <div className="mt-5 rounded-2xl border-2 border-dashed border-[var(--color-navy)]/15 bg-[var(--color-paper)] p-5 text-center">
@@ -287,7 +274,7 @@ export default function HomePage() {
 
                         {index === 2 && (
                           <div className="mt-5 flex items-center gap-2 rounded-xl bg-[var(--color-paper)] p-2 pl-3 font-mono text-xs text-[var(--color-navy-muted)]">
-                            <span className="truncate">menova.studio/viewer/proj_a7f29c1d</span>
+                            <span className="truncate">menova-flax.vercel.app/viewer/your-project</span>
                             <span className="ml-auto rounded-lg bg-[var(--color-navy)] px-2.5 py-1.5 font-sans text-[11px] font-semibold text-white">
                               Copy link
                             </span>
@@ -350,10 +337,10 @@ export default function HomePage() {
 
           {/* ------------------------------ CTA ----------------------------- */}
           <section className="pb-24">
-            <div className="relative overflow-hidden rounded-[2rem] bg-[var(--color-paper)] px-6 py-16 text-center text-[var(--color-navy)] sm:px-12 sm:py-20">
+            <div className="relative border-y border-[var(--color-line)] px-6 py-16 text-center sm:px-12 sm:py-20">
               <div
                 aria-hidden="true"
-                className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgb(201_150_42_/_0.28),transparent_60%)]"
+                className="bg-grid absolute inset-0"
               />
               <div className="relative">
                 <LogoMark className="mx-auto h-14 w-14" />
@@ -396,6 +383,8 @@ export default function HomePage() {
                   ["Workflow", "/#workflow"],
                   ["Formats", "/#formats"],
                   ["Dashboard", "/dashboard"],
+                  ["Contact us", "/contact"],
+                  ["Admin", "/admin"],
                 ].map(([label, href]) => (
                   <li key={href}>
                     <Link href={href} className="ring-focus rounded transition hover:text-[var(--color-ink)]">
@@ -410,20 +399,19 @@ export default function HomePage() {
                 Have questions?
               </p>
               <p className="mt-4 text-sm leading-relaxed text-[var(--color-muted)]">
-                Open the studio and upload your first model. A shareable link is ready in under a
-                minute.
+                Archviz is a product by Menova Studio, built for architectural presentations.
               </p>
               <Link
-                href="/dashboard"
+                href="/contact"
                 className="ring-focus mt-4 inline-flex items-center gap-1.5 rounded text-sm font-semibold text-[var(--color-ink)] transition hover:text-[var(--color-lavender)]"
               >
-                Chat to us
+                Contact us
                 <Arrow className="h-3.5 w-3.5" />
               </Link>
             </div>
           </div>
           <div className="mx-auto max-w-6xl px-5 pb-8 text-xs text-[var(--color-muted)] sm:px-8">
-            © {new Date().getFullYear()} Menova Studios. Built for architects who present in real spaces.
+            © {new Date().getFullYear()} Menova Studio. Archviz · Architectural visualization.
           </div>
         </footer>
       </div>

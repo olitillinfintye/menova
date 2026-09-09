@@ -1,7 +1,7 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { Backdrop } from "@/app/components/Backdrop";
 import { FormatBadge } from "@/app/components/FormatBadge";
@@ -9,6 +9,7 @@ import { Arrow, SiteNav } from "@/app/components/SiteNav";
 import { CopyButton } from "@/app/dashboard/CopyButton";
 import { ErrorModal } from "@/app/dashboard/ErrorModal";
 import { ProjectCard } from "@/app/dashboard/ProjectCard";
+import { EmbeddedWorkspace } from "@/app/dashboard/WorkspaceContext";
 import {
   ALLOWED_EXTENSIONS,
   BLOB_FOLDER,
@@ -75,6 +76,8 @@ function sanitiseFilename(name: string): string {
 const FORMAT_LIST = ALLOWED_EXTENSIONS.join(", ");
 
 export default function DashboardPage() {
+  const embedded = useContext(EmbeddedWorkspace);
+  const WorkspaceElement = embedded ? "div" : "main";
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -122,7 +125,7 @@ export default function DashboardPage() {
       if (!format) {
         setModal({
           title: "Unsupported file type",
-          message: `Menova Studios accepts ${FORMAT_LIST} models. "${file.name}" was rejected.`,
+          message: `Archviz accepts ${FORMAT_LIST} models. "${file.name}" was rejected.`,
         });
         return;
       }
@@ -247,19 +250,18 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Backdrop />
-      <SiteNav current="dashboard" />
+      {!embedded && <Backdrop />}
+      {!embedded && <SiteNav current="dashboard" />}
 
-      <main className="mx-auto w-full max-w-6xl px-5 pt-10 pb-20 sm:px-8 lg:pt-14">
+      <WorkspaceElement className={embedded ? "w-full pb-12" : "mx-auto w-full max-w-6xl px-5 pt-10 pb-20 sm:px-8 lg:pt-14"}>
         <header className="animate-fade-up flex flex-wrap items-end justify-between gap-6">
           <div>
-            <span className="eyebrow">Studio</span>
-            <h1 className="font-display mt-5 text-4xl font-bold tracking-tight sm:text-5xl">
-              Your <span className="text-highlight">Spaces</span>
+            <span className="text-xs font-medium text-[var(--color-accent)]">Archviz workspace</span>
+            <h1 className="font-display mt-3 text-3xl font-bold">
+              {embedded ? "Models" : "Projects"}
             </h1>
             <p className="mt-2 max-w-lg text-sm text-[var(--color-muted)]">
-              Upload a model, get a link, send it. Every space is private to your account until you
-              share it.
+              Powered by Menova Studio
             </p>
           </div>
 
@@ -306,7 +308,7 @@ export default function DashboardPage() {
               setIsDragging(false);
               handleFileList(event.dataTransfer.files);
             }}
-            className={`card relative overflow-hidden rounded-[2rem] p-8 text-center transition duration-300 sm:p-12 ${
+            className={`relative overflow-hidden border-y border-[var(--color-line)] py-8 text-center transition duration-300 sm:py-10 ${
               isDragging
                 ? "border-[var(--color-accent)] shadow-[var(--shadow-glow)]"
                 : "hover:border-[var(--color-line-strong)]"
@@ -321,7 +323,7 @@ export default function DashboardPage() {
             {/* Dashed inner frame, drawn separately so the outer card keeps its solid border. */}
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute inset-3 rounded-[1.5rem] border-2 border-dashed transition-colors duration-300 ${
+              className={`pointer-events-none absolute inset-1 rounded-md border border-dashed transition-colors duration-300 ${
                 isDragging ? "border-[var(--color-accent)]/70" : "border-[var(--color-line)]"
               }`}
             />
@@ -357,16 +359,15 @@ export default function DashboardPage() {
                 </span>
               </span>
 
-              <p className="font-display mt-6 text-2xl font-bold tracking-tight text-[var(--color-ink)]">
+              <p className="font-display mt-5 text-xl font-bold text-[var(--color-ink)]">
                 {uploading
                   ? "Uploading your model…"
                   : isDragging
                     ? "Release to upload"
-                    : "Drop a model to create a space"}
+                    : "New model"}
               </p>
               <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-muted)]">
-                Up to {formatBytes(MAX_FILE_BYTES)}. Files stream directly to storage, never through
-                our servers.
+                GLB, FBX or SKP · {formatBytes(MAX_FILE_BYTES)} maximum
               </p>
 
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
@@ -509,7 +510,7 @@ export default function DashboardPage() {
         {modal && (
           <ErrorModal title={modal.title} message={modal.message} onClose={() => setModal(null)} />
         )}
-      </main>
+      </WorkspaceElement>
     </>
   );
 }
