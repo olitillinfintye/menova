@@ -30,7 +30,7 @@ export function PasswordForm({ minLength }: { minLength: number }) {
       const response = await fetch("/api/admin/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword: values.get("currentPassword"), newPassword: values.get("newPassword") }),
+        body: JSON.stringify({ currentPassword: values.get("currentPassword"), newPassword: values.get("newPassword"), confirmPassword: values.get("confirmPassword") }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
