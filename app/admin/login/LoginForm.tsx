@@ -29,7 +29,7 @@ export function LoginForm({ configured }: { configured: boolean }) {
   }
 
   return (
-    <form onSubmit={submit} className="mt-8">
+    <form onSubmit={submit} method="post" action="/api/admin/session" className="mt-8">
       <label className="block text-sm font-medium" htmlFor="admin-password">Admin password</label>
       <div className="relative mt-2">
         <LockKeyhole className="pointer-events-none absolute top-3.5 left-3 h-5 w-5 text-[var(--color-muted)]" aria-hidden="true" />

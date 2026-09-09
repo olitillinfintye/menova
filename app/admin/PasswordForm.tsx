@@ -47,7 +47,7 @@ export function PasswordForm({ minLength }: { minLength: number }) {
     }
   }
 
-  return <form onSubmit={submit} aria-label="Change admin password" className="mt-7 max-w-lg">
+  return <form onSubmit={submit} method="post" action="/api/admin/password" aria-label="Change admin password" className="mt-7 max-w-lg">
     <fieldset disabled={pending} className="space-y-5">
       <label className="block text-sm font-medium">Current password
         <input name="currentPassword" type="password" autoComplete="current-password" required maxLength={1024} className={inputClass} />

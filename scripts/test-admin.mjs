@@ -52,6 +52,13 @@ const testVersion = "186d4bc7-962f-4de3-a270-e4846a126a0b";
 process.env.AUTH_SECRET = "test-secret-only-not-a-production-secret";
 process.env.ADMIN_PASSWORD = "test-password-only-not-for-production";
 
+test("password forms cannot fall back to GET requests before hydration", () => {
+  for (const file of ["app/admin/login/LoginForm.tsx", "app/admin/PasswordForm.tsx"]) {
+    const source = readFileSync(new URL(file, root), "utf8");
+    assert.match(source, /<form\s[^>]*method="post"[^>]*action="\/api\/admin\/(session|password)"/);
+  }
+});
+
 test("admin sessions cannot be granted by anonymous mode or old cookies", () => {
   process.env.ALLOW_ANONYMOUS = "true";
   assert.equal(auth.verifyAdminSession(undefined, testVersion), false);
