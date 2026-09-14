@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import ViewerClient from "@/app/viewer/[id]/ViewerClient";
+import { isAdmin } from "@/lib/admin-auth";
 import { isProjectId } from "@/lib/constants";
 import { getProject } from "@/lib/db";
 import type { Project } from "@/lib/types";
@@ -20,7 +21,7 @@ export async function generateMetadata({ params }: ViewerPageProps): Promise<Met
   if (!isProjectId(id)) return { title: "Space not found" };
 
   try {
-    const project = await getProject(id);
+    const project = await getProject(id, await isAdmin());
     if (!project) return { title: "Space not found" };
     return {
       title: project.title,
@@ -47,7 +48,7 @@ export default async function ViewerPage({ params, searchParams }: ViewerPagePro
 
   let project: Project | null = null;
   try {
-    project = await getProject(id);
+    project = await getProject(id, await isAdmin());
   } catch (error) {
     console.error("[viewer] Failed to read project", id, error);
     throw new Error(

@@ -23,3 +23,20 @@ export async function PATCH(request: Request): Promise<Response> {
     return privateError(error);
   }
 }
+
+export async function DELETE(request: Request): Promise<Response> {
+  try {
+    await requireAdmin();
+    assertSameOrigin(request);
+    const body = await readJson(request, 2048) as { id?: unknown } | null;
+    if (typeof body?.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.id)) {
+      throw invalidRequest("Select a valid enquiry.");
+    }
+    await ensureContactSchema();
+    const { rowCount } = await sql`DELETE FROM contact_inquiries WHERE id = ${body.id};`;
+    if (!rowCount) throw notFound("Enquiry not found.");
+    return Response.json({ deleted: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return privateError(error);
+  }
+}

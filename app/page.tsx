@@ -5,8 +5,9 @@ import { FormatBadge } from "@/app/components/FormatBadge";
 import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import { Arrow, SiteNav } from "@/app/components/SiteNav";
 import { MAX_FILE_BYTES, MODEL_FORMATS, type ModelFormat, formatBytes } from "@/lib/constants";
+import { getSiteVideos } from "@/lib/site-media-db";
 
-const WALKTHROUGH_VIDEO = "/media/3D_Interior_animation.mp4";
+export const dynamic = "force-dynamic";
 
 const DEVICES = [
   {
@@ -97,7 +98,8 @@ function Icon({ children, className = "h-6 w-6" }: { children: React.ReactNode; 
   );
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  const videos = await getSiteVideos();
   const formats = Object.keys(MODEL_FORMATS) as ModelFormat[];
 
   return (
@@ -108,7 +110,7 @@ export default function HomePage() {
           className="absolute inset-0 h-full w-full object-cover"
           autoPlay muted loop playsInline preload="metadata"
           aria-label="Archviz architectural interior walkthrough"
-          src={WALKTHROUGH_VIDEO}
+          src={videos.home.url}
         />
         <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/60" />
 
@@ -151,7 +153,7 @@ export default function HomePage() {
         <main className="relative mx-auto w-full max-w-6xl px-5 sm:px-8">
           {/* --------------------------- devices ---------------------------- */}
           <section id="devices" className="animate-fade-up scroll-mt-24 pt-16 pb-20 [animation-delay:220ms] sm:pt-20">
-            <DeviceShowcase src={WALKTHROUGH_VIDEO}>
+            <DeviceShowcase src={videos.devices.url}>
               <h2 className="font-display max-w-md text-3xl leading-[1.1] font-bold tracking-tight sm:text-4xl">
                 Complete clarity, everywhere decisions happen.
               </h2>

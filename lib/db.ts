@@ -15,6 +15,7 @@ interface ProjectRow {
   owner_id: string;
   upload_ref: string;
   hotspots: unknown;
+  is_public: boolean;
 }
 
 function mapRow(row: ProjectRow): Project {
@@ -31,6 +32,7 @@ function mapRow(row: ProjectRow): Project {
         : new Date(row.created_at).toISOString(),
     ownerId: row.owner_id,
     hotspots: hotspotsFromRow(row.hotspots),
+    isPublic: row.is_public,
   };
 }
 
@@ -71,6 +73,10 @@ export function ensureSchema(): Promise<void> {
       ALTER TABLE projects
         ADD COLUMN IF NOT EXISTS hotspots JSONB NOT NULL DEFAULT '[]'::jsonb;
     `;
+    await sql`
+      ALTER TABLE projects
+        ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE;
+    `;
   })().catch((error) => {
     // Never cache a failed bootstrap: the next request must retry.
     schemaPromise = null;
@@ -81,12 +87,13 @@ export function ensureSchema(): Promise<void> {
 }
 
 /** All projects owned by `ownerId`, newest first. */
-export async function listProjects(ownerId: string): Promise<Project[]> {
+export async function listProjects(ownerId: string, includeHidden = false): Promise<Project[]> {
   await ensureSchema();
   const { rows } = await sql<ProjectRow>`
-    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots
+    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots, is_public
     FROM projects
     WHERE owner_id = ${ownerId}
+      AND (is_public = TRUE OR ${includeHidden})
     ORDER BY created_at DESC
     LIMIT 500;
   `;
@@ -94,12 +101,13 @@ export async function listProjects(ownerId: string): Promise<Project[]> {
 }
 
 /** A single project, or `null` when it does not exist. */
-export async function getProject(id: string): Promise<Project | null> {
+export async function getProject(id: string, includeHidden = false): Promise<Project | null> {
   await ensureSchema();
   const { rows } = await sql<ProjectRow>`
-    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots
+    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots, is_public
     FROM projects
     WHERE id = ${id}
+      AND (is_public = TRUE OR ${includeHidden})
     LIMIT 1;
   `;
   return rows[0] ? mapRow(rows[0]) : null;
@@ -110,13 +118,31 @@ export async function updateHotspots(
   id: string,
   ownerId: string,
   hotspots: Hotspot[],
+  includeHidden = false,
 ): Promise<Project> {
   await ensureSchema();
   const { rows } = await sql<ProjectRow>`
     UPDATE projects
     SET hotspots = ${JSON.stringify(hotspots)}::jsonb
     WHERE id = ${id} AND owner_id = ${ownerId}
-    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots;
+      AND (is_public = TRUE OR ${includeHidden})
+    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots, is_public;
+  `;
+  if (!rows[0]) throw notFound();
+  return mapRow(rows[0]);
+}
+
+export async function updateProjectVisibility(
+  id: string,
+  ownerId: string,
+  isPublic: boolean,
+): Promise<Project> {
+  await ensureSchema();
+  const { rows } = await sql<ProjectRow>`
+    UPDATE projects
+    SET is_public = ${isPublic}
+    WHERE id = ${id} AND owner_id = ${ownerId}
+    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots, is_public;
   `;
   if (!rows[0]) throw notFound();
   return mapRow(rows[0]);
@@ -157,13 +183,13 @@ export async function createProject(
       ${input.uploadRef}
     )
     ON CONFLICT (upload_ref) DO NOTHING
-    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots;
+    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots, is_public;
   `;
 
   if (rows[0]) return { project: mapRow(rows[0]), created: true };
 
   const { rows: existing } = await sql<ProjectRow>`
-    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots
+    SELECT id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots, is_public
     FROM projects
     WHERE upload_ref = ${input.uploadRef}
     LIMIT 1;
@@ -186,7 +212,7 @@ export async function deleteProject(
   const { rows } = await sql<ProjectRow>`
     DELETE FROM projects
     WHERE id = ${id} AND owner_id = ${ownerId}
-    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots;
+    RETURNING id, title, blob_url, blob_pathname, size_bytes, created_at, owner_id, upload_ref, hotspots, is_public;
   `;
   if (!rows[0]) throw notFound();
   return mapRow(rows[0]);

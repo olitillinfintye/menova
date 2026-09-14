@@ -109,7 +109,7 @@ export function DeviceShowcase({
   // element is created, so kick playback explicitly.
   useEffect(() => {
     videoRef.current?.play().catch(() => undefined);
-  }, []);
+  }, [src]);
 
   const meta = DEVICES[device];
   const portrait = device === "mobile";

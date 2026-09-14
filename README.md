@@ -37,8 +37,8 @@ and requires an internet connection.
 | `POST /api/upload`       | Blob client-token handshake + `onUploadCompleted` webhook        |
 | `GET /api/projects`      | Project list for the dashboard                                   |
 | `POST /api/projects`     | Idempotent upload registration (localhost + webhook-race safe)   |
-| `PATCH /api/projects`    | Replaces a project's hotspot list (`{ hotspots }`)               |
-| `DELETE /api/projects`   | Deletes the blob, then the row                                   |
+| `PATCH /api/projects`    | Updates hotspots (`{ hotspots }`) or admin-only visibility (`{ isPublic }`) |
+| `DELETE /api/projects`   | Admin-only: deletes the blob, then the row                       |
 
 ## Setup
 
@@ -116,7 +116,9 @@ first creates the row while the other becomes a no-op returning the same record.
 - `/contact` collects a name, email, optional phone/company, and project requirements.
 - `/admin` shows actual enquiry counts, unique emails, model storage, monthly activity,
   enquiry statuses, and model formats. These are database metrics, not visitor tracking.
-- `/admin/models` reuses the workspace's model upload, share, hotspot, and delete flow.
+- `/admin/models` provides model upload, share, hotspot, visibility, and delete controls.
+- `/admin/videos` manages the homepage and devices videos independently, with previews,
+  upload progress, saving, and restoration of the bundled default video.
 - `/admin/contacts` provides private search, status filters, pagination, email/phone links,
   project details, and New / Contacted / Closed status updates.
 - `/admin/profile` changes the admin password after confirming the current password.
@@ -147,6 +149,27 @@ the existing shared `public` workspace owner. Set `ALLOW_ANONYMOUS=false` to dis
 anonymous access to model operations; public viewer links and the contact form remain
 available. The public workspace is not an admin login.
 
+Only signed-in admins can delete models or change their visibility, even when anonymous
+model access is enabled. In `/admin/models`, each model has a **Public / Hidden** switch.
+Hidden models stay in the admin workspace but are excluded from public model lists;
+their viewer pages and metadata return not found to visitors. Admins can still preview
+them. Existing and newly uploaded models default to Public. The `is_public` column is
+added automatically by the existing schema setup.
+
+Visibility controls website access, not file revocation: files use public Vercel Blob
+storage, so a direct file URL that was already shared or downloaded remains accessible.
+Use private storage and authenticated downloads if file-level confidentiality is required.
+
+Site videos accept MP4 or WebM files up to 100 MB. Choosing a file creates a local preview;
+**Save video** uploads it directly to Vercel Blob and publishes it to the selected section.
+The save endpoint verifies the stored file's path, type, and size. Video upload, save, and
+reset endpoints require an admin session and reject cross-site requests. Selections use
+the existing `POSTGRES_URL` connection in an automatically created `site_videos` table.
+Homepage requests load the latest saved selections without a rebuild. Both sections use
+the bundled video until a custom video is saved. Restoring a default does not delete
+previous uploads from Blob storage. The admin page reports storage failures; the public
+homepage falls back to the bundled video when settings cannot be loaded.
+
 Submissions have server-side field/body limits, parameterized SQL, duplicate protection,
 and a hidden spam trap. Login and contact requests are limited to ten attempts per
 15 minutes per client using Vercel's trusted forwarded IP header; outside Vercel the
@@ -155,8 +178,9 @@ trusted client-address strategy before deployment. Neither raw IP addresses nor
 contact bodies are logged. Enquiries remain in the database until an operator removes
 them; define a retention policy appropriate to your business.
 
-Run `npm run test:contact`, `npm run test:admin`, and `npm run build` to verify input
-validation, origin checks, throttling, private access, session expiry, and compilation.
+Run `npm run test:contact`, `npm run test:admin`, `npm run test:media`, and `npm run build`
+to verify input validation, origin checks, throttling, private access, video settings,
+session expiry, and compilation.
 
 ## XR presentation
 

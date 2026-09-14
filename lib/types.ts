@@ -22,6 +22,7 @@ export interface Project {
   createdAt: string;
   ownerId: string;
   hotspots: Hotspot[];
+  isPublic: boolean;
 }
 
 /** Payload the browser attaches to `upload()` and the server validates. */

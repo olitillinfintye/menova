@@ -245,6 +245,27 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const handleVisibilityChange = useCallback(async (project: Project, isPublic: boolean) => {
+    try {
+      const response = await fetch(`/api/projects?id=${encodeURIComponent(project.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic }),
+      });
+      if (!response.ok) {
+        throw new Error(await readError(response, "Could not update model visibility."));
+      }
+      const { project: updated } = (await response.json()) as ProjectResponse;
+      setProjects((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+      setLastUploaded((current) => current?.id === updated.id ? updated : current);
+    } catch (error) {
+      setModal({
+        title: "Visibility update failed",
+        message: error instanceof Error ? error.message : "Could not update model visibility.",
+      });
+    }
+  }, []);
+
   const totalBytes = projects.reduce((sum, project) => sum + project.sizeBytes, 0);
   const formats = Object.keys(MODEL_FORMATS) as ModelFormat[];
 
@@ -501,7 +522,12 @@ export default function DashboardPage() {
           {projects.length > 0 && (
             <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {projects.map((project) => (
-                <ProjectCard key={project.id} project={project} onDelete={handleDelete} />
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  onDelete={embedded ? handleDelete : undefined}
+                  onVisibilityChange={embedded ? handleVisibilityChange : undefined}
+                />
               ))}
             </div>
           )}

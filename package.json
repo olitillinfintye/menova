@@ -12,6 +12,7 @@
     "test:xr": "node --test scripts/test-xr.mjs",
     "test:contact": "node --test scripts/test-contact.mjs",
     "test:admin": "node --test scripts/test-admin.mjs",
+    "test:media": "node --test scripts/test-media.mjs",
     "android:assets": "node scripts/build-android-assets.mjs",
     "android:build": "node scripts/build-android.mjs"
   },

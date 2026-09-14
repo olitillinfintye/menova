@@ -1,5 +1,6 @@
 import { del } from "@vercel/blob";
 
+import { requireAdmin } from "@/lib/admin-auth";
 import { assertOwner, requireSession } from "@/lib/auth";
 import {
   ALLOWED_EXTENSIONS,
@@ -15,10 +16,12 @@ import {
   getProject,
   listProjects,
   updateHotspots,
+  updateProjectVisibility,
 } from "@/lib/db";
 import { ApiError, invalidRequest, notFound, toApiError } from "@/lib/errors";
 import { parseHotspots } from "@/lib/hotspots";
 import { generateProjectId } from "@/lib/ids";
+import { assertSameOrigin } from "@/lib/request-security";
 import type { ProjectListResponse, ProjectResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -33,7 +36,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await requireSession(request);
-    const projects = await listProjects(session.userId);
+    const projects = await listProjects(session.userId, session.source === "admin");
     return jsonResponse<ProjectListResponse>(request, { projects });
   } catch (error) {
     const apiError = toApiError(error);
@@ -104,6 +107,7 @@ export async function POST(request: Request): Promise<Response> {
 
     // A row created by the webhook belongs to the same owner; still verify.
     assertOwner(session, project.ownerId);
+    if (!project.isPublic && session.source !== "admin") throw notFound();
 
     return jsonResponse<ProjectResponse>(request, { project }, created ? 201 : 200);
   } catch (error) {
@@ -134,13 +138,21 @@ export async function PATCH(request: Request): Promise<Response> {
     } catch {
       throw invalidRequest("Request body must be JSON.");
     }
+    if (raw !== null && typeof raw === "object" && "isPublic" in raw) {
+      await requireAdmin();
+      assertSameOrigin(request);
+      if (typeof raw.isPublic !== "boolean") throw invalidRequest("isPublic must be a boolean.");
+      if ("hotspots" in raw) throw invalidRequest("Update model visibility and hotspots separately.");
+      const project = await updateProjectVisibility(id, session.userId, raw.isPublic);
+      return jsonResponse<ProjectResponse>(request, { project });
+    }
     const hotspots = parseHotspots((raw as { hotspots?: unknown } | null)?.hotspots);
 
-    const existing = await getProject(id);
+    const existing = await getProject(id, session.source === "admin");
     if (!existing) throw notFound();
     assertOwner(session, existing.ownerId);
 
-    const project = await updateHotspots(id, session.userId, hotspots);
+    const project = await updateHotspots(id, session.userId, hotspots, session.source === "admin");
     return jsonResponse<ProjectResponse>(request, { project });
   } catch (error) {
     const apiError = toApiError(error);
@@ -160,6 +172,8 @@ export async function PATCH(request: Request): Promise<Response> {
  */
 export async function DELETE(request: Request): Promise<Response> {
   try {
+    await requireAdmin();
+    assertSameOrigin(request);
     const session = await requireSession(request);
 
     const url = new URL(request.url);
@@ -174,7 +188,7 @@ export async function DELETE(request: Request): Promise<Response> {
     if (!id) throw invalidRequest("Missing project id. Use ?id=proj_xxxxxxxx.");
     if (!isProjectId(id)) throw invalidRequest(`"${id}" is not a valid project id.`);
 
-    const project = await getProject(id);
+    const project = await getProject(id, true);
     if (!project) throw notFound();
     assertOwner(session, project.ownerId);
 

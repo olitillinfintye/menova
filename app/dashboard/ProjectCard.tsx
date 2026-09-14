@@ -1,5 +1,6 @@
 "use client";
 
+import { Eye, EyeOff, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -10,7 +11,8 @@ import type { Project } from "@/lib/types";
 
 interface ProjectCardProps {
   project: Project;
-  onDelete: (project: Project) => Promise<void>;
+  onDelete?: (project: Project) => Promise<void>;
+  onVisibilityChange?: (project: Project, isPublic: boolean) => Promise<void>;
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -67,20 +69,33 @@ function Cover({ id }: { id: string }) {
   );
 }
 
-export function ProjectCard({ project, onDelete }: ProjectCardProps) {
+export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCardProps) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [savingVisibility, setSavingVisibility] = useState(false);
   const viewerUrl = buildViewerUrl(project.id);
   const format = getModelFormat(project.blobPathname) ?? "glb";
   const interactive = MODEL_FORMATS[format].walkthrough;
+  const VisibilityIcon = project.isPublic ? Eye : EyeOff;
 
   async function handleDelete() {
+    if (!onDelete || busy || savingVisibility) return;
     setBusy(true);
     try {
       await onDelete(project);
     } finally {
       setBusy(false);
       setConfirming(false);
+    }
+  }
+
+  async function handleVisibilityChange() {
+    if (!onVisibilityChange || savingVisibility || busy) return;
+    setSavingVisibility(true);
+    try {
+      await onVisibilityChange(project, !project.isPublic);
+    } finally {
+      setSavingVisibility(false);
     }
   }
 
@@ -141,12 +156,12 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
             </Link>
           )}
 
-          {confirming ? (
+          {onDelete && (confirming ? (
             <span className="ml-auto flex items-center gap-1">
               <button
                 type="button"
                 onClick={handleDelete}
-                disabled={busy}
+                disabled={busy || savingVisibility}
                 className="ring-focus rounded-lg bg-red-500/90 px-3 py-2 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
               >
                 {busy ? "Deleting…" : "Confirm"}
@@ -164,15 +179,38 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
             <button
               type="button"
               onClick={() => setConfirming(true)}
+              disabled={savingVisibility}
               aria-label={`Delete ${project.title}`}
-              className="ring-focus ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-muted)] transition hover:bg-red-500/10 hover:text-red-400"
+              title="Delete model"
+              className="ring-focus ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-muted)] transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
             >
-              <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8M6.8 7v4M9.2 7v4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
             </button>
-          )}
+          ))}
         </div>
+
+        {onVisibilityChange && (
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--color-line)] pt-3">
+            <span className="inline-flex items-center gap-2 text-xs text-[var(--color-muted)]" role="status">
+              <VisibilityIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {savingVisibility ? "Saving..." : project.isPublic ? "Public" : "Hidden"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={project.isPublic}
+              aria-label={`Public visibility for ${project.title}`}
+              title={project.isPublic ? "Hide model" : "Make model public"}
+              disabled={savingVisibility || busy}
+              onClick={() => void handleVisibilityChange()}
+              className="ring-focus flex h-8 w-12 shrink-0 items-center justify-center rounded-md disabled:opacity-50"
+            >
+              <span aria-hidden="true" className={`relative h-5 w-9 rounded-full transition-colors ${project.isPublic ? "bg-[var(--color-accent)]" : "bg-[var(--color-surface-3)]"}`}>
+                <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${project.isPublic ? "translate-x-4" : "translate-x-0"}`} />
+              </span>
+            </button>
+          </div>
+        )}
       </div>
     </article>
   );
