@@ -1,7 +1,7 @@
 import { del } from "@vercel/blob";
 
-import { requireAdmin } from "@/lib/admin-auth";
-import { assertOwner, requireSession } from "@/lib/auth";
+import { isAdmin, requireAdmin } from "@/lib/admin-auth";
+import { ANONYMOUS_OWNER_ID, assertOwner, requireSession } from "@/lib/auth";
 import {
   ALLOWED_EXTENSIONS,
   MAX_FILE_BYTES,
@@ -35,8 +35,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request): Promise<Response> {
   try {
-    const session = await requireSession(request);
-    const projects = await listProjects(session.userId, session.source === "admin");
+    const includeHidden = new URL(request.url).searchParams.get("public") !== "1" && await isAdmin();
+    const projects = await listProjects(ANONYMOUS_OWNER_ID, includeHidden);
     return jsonResponse<ProjectListResponse>(request, { projects });
   } catch (error) {
     const apiError = toApiError(error);
@@ -61,6 +61,8 @@ export async function GET(request: Request): Promise<Response> {
  */
 export async function POST(request: Request): Promise<Response> {
   try {
+    await requireAdmin();
+    assertSameOrigin(request);
     const session = await requireSession(request);
 
     let raw: unknown;

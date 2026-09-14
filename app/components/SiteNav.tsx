@@ -51,24 +51,24 @@ export function SiteNav({ current = "home", tone = "dark" }: SiteNavProps) {
           >
             Download APK
           </a>
-          <Link
-            href={current === "dashboard" ? "/" : "/dashboard"}
-            className={`ring-focus items-center gap-2 rounded-md py-2.5 text-sm font-medium transition ${current === "dashboard" ? "inline-flex" : "hidden sm:inline-flex"} ${linkClass}`}
+          {current === "dashboard" && <Link
+            href="/"
+            className={`ring-focus inline-flex items-center gap-2 rounded-md py-2.5 text-sm font-medium transition ${linkClass}`}
           >
-            {current === "dashboard" && <Arrow className="h-4 w-4 rotate-180" />}
-            {current === "dashboard" ? "Back to home" : "Workspace"}
-          </Link>
-          <Link
-            href="/dashboard#upload-heading"
+            <Arrow className="h-4 w-4 rotate-180" />
+            Back to home
+          </Link>}
+          {current === "home" && <Link
+            href="/dashboard"
             className={`ring-focus btn-slant inline-flex items-center gap-2 py-2.5 pl-5 text-sm font-semibold transition hover:brightness-110 ${
               light
                 ? "bg-[var(--color-navy)] text-white"
                 : "bg-[var(--color-accent)] text-white"
             }`}
           >
-            {current === "dashboard" ? "New project" : "Open Archviz"}
+            Open Archviz
             <Arrow />
-          </Link>
+          </Link>}
         </div>
       </nav>
     </header>

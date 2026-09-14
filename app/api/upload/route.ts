@@ -1,5 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
+import { requireAdmin } from "@/lib/admin-auth";
 import { requireSession } from "@/lib/auth";
 import {
   ALLOWED_CONTENT_TYPES,
@@ -13,6 +14,7 @@ import { errorResponse, handlePreflight, jsonResponse } from "@/lib/cors";
 import { createProject } from "@/lib/db";
 import { ApiError, toApiError } from "@/lib/errors";
 import { generateProjectId } from "@/lib/ids";
+import { assertSameOrigin } from "@/lib/request-security";
 import type { UploadClientPayload, UploadTokenPayload } from "@/lib/types";
 
 // The Blob client-upload handshake needs the Node runtime (crypto + pg driver).
@@ -92,6 +94,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
+    if (body?.type !== "blob.upload-completed") {
+      await requireAdmin();
+      assertSameOrigin(request);
+    }
     const result = await handleUpload({
       body,
       request,
@@ -181,7 +187,7 @@ export async function OPTIONS(request: Request): Promise<Response> {
  */
 export async function GET(request: Request): Promise<Response> {
   try {
-    await requireSession(request);
+    await requireAdmin();
 
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       throw new ApiError(

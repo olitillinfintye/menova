@@ -1,0 +1,363 @@
+.hero {
+  --hero-canvas: #061e29;
+  --hero-ink: #e2f5f8;
+  --hero-cyan: #a8eaf4;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--hero-canvas);
+}
+
+.scene {
+  position: absolute;
+  inset: 0 0 0 33%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.scene img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 60% 44%;
+  filter: saturate(0.65) brightness(0.8);
+}
+
+.scene::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, #061e29 0%, #061e29e8 8%, #061e2960 36%, transparent 70%),
+    linear-gradient(0deg, #061e29 0%, transparent 36%, transparent 72%, #061e29c4 100%);
+}
+
+.composition {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  align-items: center;
+  min-height: min(650px, 74svh);
+  gap: 32px;
+  padding-block: 48px 60px;
+}
+
+.copy {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+}
+
+.brand {
+  margin-bottom: 19px;
+  color: #a7cebe;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.headline {
+  color: var(--hero-ink);
+  font-size: 68px;
+  font-weight: 800;
+  line-height: 1.13;
+  letter-spacing: 0;
+}
+
+.headline h1 {
+  margin: 0;
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.headline h1 span {
+  display: block;
+}
+
+.headline h1 span:first-child {
+  color: var(--hero-cyan);
+}
+
+.intro {
+  max-width: 390px;
+  margin-top: 27px;
+  color: #b1cbd4;
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.credit {
+  max-width: 190px;
+}
+
+.visual {
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 440px;
+}
+
+.phoneFloat {
+  position: absolute;
+  right: 8px;
+  bottom: -6px;
+  width: 207px;
+  aspect-ratio: 207 / 392;
+  perspective: 1000px;
+  animation: phone-hover 7s ease-in-out infinite;
+}
+
+.phone {
+  position: absolute;
+  inset: 0;
+  padding: 7px;
+  border: 1.5px solid #9ab3bc;
+  border-radius: 34px;
+  background: #09151e;
+  box-shadow: 4px 4px 0 #28414e, 7px 7px 0 #08131c, 0 24px 44px #0007;
+  transform: rotate(9deg) rotateY(-14deg);
+}
+
+.phone::before {
+  content: "";
+  position: absolute;
+  top: 91px;
+  right: -4px;
+  width: 3px;
+  height: 35px;
+  border-radius: 2px;
+  background: #7b97a4;
+}
+
+.screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 26px;
+  background: #27413e;
+}
+
+.screen video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(#0a1e295e, transparent 30%, transparent 62%, #06151dcc);
+  pointer-events: none;
+}
+
+.island {
+  position: absolute;
+  top: 7px;
+  left: calc(50% - 32px);
+  z-index: 2;
+  width: 64px;
+  height: 18px;
+  border-radius: 20px;
+  background: #081015;
+}
+
+.phoneHeader {
+  position: absolute;
+  top: 37px;
+  right: 14px;
+  left: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.phoneHeader span:last-child {
+  padding: 4px 6px;
+  border: 1px solid #f0ffff60;
+  border-radius: 4px;
+  background: #061e2999;
+  font-size: 8px;
+}
+
+.reticle {
+  position: absolute;
+  top: 26%;
+  left: 12%;
+  z-index: 2;
+  width: 76%;
+  height: 44%;
+  color: #d2f7fa;
+}
+
+.reticle::before,
+.reticle::after,
+.reticle span::before,
+.reticle span::after {
+  content: "";
+  position: absolute;
+  width: 17px;
+  height: 17px;
+  border-style: solid;
+  border-color: currentColor;
+}
+
+.reticle::before { top: 0; left: 0; border-width: 1.5px 0 0 1.5px; }
+.reticle::after { top: 0; right: 0; border-width: 1.5px 1.5px 0 0; }
+.reticle span::before { bottom: 0; left: 0; border-width: 0 0 1.5px 1.5px; }
+.reticle span::after { bottom: 0; right: 0; border-width: 0 1.5px 1.5px 0; }
+
+.phoneCaption {
+  position: absolute;
+  right: 12px;
+  bottom: 35px;
+  left: 12px;
+  z-index: 2;
+  color: #f0f9f6;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.homeBar {
+  position: absolute;
+  bottom: 9px;
+  left: calc(50% - 32px);
+  z-index: 2;
+  width: 64px;
+  height: 3px;
+  border-radius: 2px;
+  background: white;
+}
+
+.phoneLabel {
+  position: absolute;
+  right: -7px;
+  bottom: -21px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: 225px;
+  padding: 11px 14px;
+  border: 1px solid #63879080;
+  border-radius: 8px;
+  background: #0a2b37ee;
+  color: #d7f7f9;
+  box-shadow: 0 12px 35px #00101555;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.phoneLabel svg {
+  flex-shrink: 0;
+}
+
+.phoneLabel small {
+  display: block;
+  margin-top: 3px;
+  color: #95bac5;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+@keyframes phone-hover {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -12px; }
+}
+
+@media (min-width: 1600px) {
+  .scene { left: 40%; }
+}
+
+@media (max-width: 1199px) {
+  .headline { font-size: 58px; }
+  .composition { gap: 24px; }
+  .phoneFloat { right: 12px; width: 188px; }
+}
+
+@media (min-width: 768px) and (max-height: 760px) {
+  .composition { min-height: 480px; padding-block: 26px 38px; }
+  .headline { font-size: 54px; }
+  .visual { min-height: 380px; }
+  .phoneFloat { width: 173px; right: 25px; bottom: 8px; }
+  .intro { margin-top: 18px; font-size: 15px; }
+}
+
+@media (max-width: 767px) {
+  .composition {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    min-height: 0;
+    padding-block: 25px 34px;
+  }
+  .brand { margin-bottom: 16px; font-size: 12px; }
+  .headline { font-size: 54px; }
+  .intro { margin-top: 20px; max-width: 390px; font-size: 15px; }
+  .scene { inset: auto 0 0; height: 440px; }
+  .scene img { object-position: 58% 36%; }
+  .scene::after {
+    background: linear-gradient(180deg, #061e29 0%, #061e2933 23%, transparent 65%, #061e29 100%);
+  }
+  .visual { min-height: 340px; margin-top: 14px; }
+  .phoneFloat { left: 22px; right: auto; width: 153px; bottom: 14px; }
+  .phone { padding: 5px; border-radius: 27px; }
+  .screen { border-radius: 21px; }
+  .phoneLabel { right: -10px; bottom: -16px; padding: 9px 11px; font-size: 10px; }
+  .phoneLabel small { font-size: 8px; }
+  .island { width: 50px; height: 14px; left: calc(50% - 25px); }
+  .phoneHeader { top: 31px; left: 10px; right: 10px; font-size: 8px; }
+  .phoneHeader span:last-child { font-size: 7px; }
+}
+
+@media (max-width: 420px) {
+  .composition { padding-block: 20px 100px; }
+  .headline { font-size: 45px; }
+  .intro { font-size: 14px; }
+  .actions { margin-top: 22px; max-width: 215px; }
+  .credit { margin-top: 24px; }
+  .visual { position: absolute; right: 14px; bottom: 31px; width: 118px; height: 230px; min-height: 0; margin: 0; }
+  .phoneFloat { width: 118px; left: 0; bottom: 0; }
+  .phone { border-radius: 23px; }
+  .screen { border-radius: 17px; }
+  .phoneHeader { left: 7px; right: 7px; font-size: 7px; gap: 5px; }
+  .phoneHeader span:last-child { padding: 3px 4px; font-size: 6px; }
+  .phoneCaption { font-size: 7px; bottom: 27px; }
+  .island { width: 40px; height: 12px; left: calc(50% - 20px); }
+  .scene { height: 380px; }
+  .scene img { object-position: 32% 36%; }
+  .scene::after {
+    background:
+      linear-gradient(180deg, #061e29 0%, #061e2933 28%, transparent 64%, #061e29 100%),
+      linear-gradient(90deg, #061e29dc 0%, #061e2966 48%, transparent 80%);
+  }
+}
+
+@media (max-width: 359px) {
+  .composition { padding-block: 18px 76px; }
+  .brand { margin-bottom: 12px; }
+  .headline { font-size: 36px; }
+  .intro { font-size: 13px; line-height: 1.6; }
+  .actions { margin-top: 20px; }
+  .credit { margin-top: 18px; }
+  .visual { right: -6px; bottom: 24px; width: 85px; height: 172px; }
+  .phoneFloat { width: 85px; }
+  .phone { padding: 3px; border-radius: 17px; }
+  .screen { border-radius: 13px; }
+  .phoneHeader { top: 23px; left: 6px; right: 6px; font-size: 6px; gap: 3px; }
+  .phoneHeader span:last-child { padding: 2px; font-size: 5px; }
+  .phoneCaption { font-size: 5px; bottom: 19px; }
+  .island { top: 5px; width: 28px; height: 8px; left: calc(50% - 14px); }
+  .phoneLabel { right: 0; bottom: -14px; font-size: 9px; padding: 8px; gap: 7px; }
+  .homeBar { width: 34px; height: 2px; left: calc(50% - 17px); bottom: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phoneFloat { animation: none; }
+}

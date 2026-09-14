@@ -4,6 +4,7 @@ import { Eye, EyeOff, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ThumbnailEditor } from "@/app/admin/ThumbnailEditor";
 import { FormatBadge } from "@/app/components/FormatBadge";
 import { CopyButton } from "@/app/dashboard/CopyButton";
 import { MODEL_FORMATS, buildViewerUrl, formatBytes, getModelFormat } from "@/lib/constants";
@@ -13,6 +14,7 @@ interface ProjectCardProps {
   project: Project;
   onDelete?: (project: Project) => Promise<void>;
   onVisibilityChange?: (project: Project, isPublic: boolean) => Promise<void>;
+  onThumbnailChange?: (project: Project) => void;
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -69,17 +71,19 @@ function Cover({ id }: { id: string }) {
   );
 }
 
-export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCardProps) {
+export function ProjectCard({ project, onDelete, onVisibilityChange, onThumbnailChange }: ProjectCardProps) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [savingVisibility, setSavingVisibility] = useState(false);
+  const [savingThumbnail, setSavingThumbnail] = useState(false);
+  const [failedThumbnailUrl, setFailedThumbnailUrl] = useState<string | null>(null);
   const viewerUrl = buildViewerUrl(project.id);
   const format = getModelFormat(project.blobPathname) ?? "glb";
   const interactive = MODEL_FORMATS[format].walkthrough;
   const VisibilityIcon = project.isPublic ? Eye : EyeOff;
 
   async function handleDelete() {
-    if (!onDelete || busy || savingVisibility) return;
+    if (!onDelete || busy || savingVisibility || savingThumbnail) return;
     setBusy(true);
     try {
       await onDelete(project);
@@ -90,7 +94,7 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
   }
 
   async function handleVisibilityChange() {
-    if (!onVisibilityChange || savingVisibility || busy) return;
+    if (!onVisibilityChange || savingVisibility || busy || savingThumbnail) return;
     setSavingVisibility(true);
     try {
       await onVisibilityChange(project, !project.isPublic);
@@ -100,9 +104,12 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
   }
 
   return (
-    <article className="card group flex flex-col overflow-hidden rounded-3xl transition duration-300 hover:-translate-y-0.5 hover:border-[var(--color-line-strong)]">
+    <article className="card group flex min-w-0 flex-col overflow-hidden rounded-3xl transition duration-300 hover:-translate-y-0.5 hover:border-[var(--color-line-strong)]">
       <Link href={`/viewer/${project.id}`} className="ring-focus relative block" aria-label={`Open ${project.title}`}>
-        <Cover id={project.id} />
+        {project.thumbnailUrl && project.thumbnailUrl !== failedThumbnailUrl ? (
+          <img src={project.thumbnailUrl} alt={`${project.title} thumbnail`} loading="lazy"
+            onError={() => setFailedThumbnailUrl(project.thumbnailUrl)} className="h-36 w-full object-cover" />
+        ) : <Cover id={project.id} />}
         <div className="absolute top-3 left-3 flex items-center gap-2">
           <FormatBadge format={format} className="glass" />
           {!interactive && (
@@ -123,7 +130,7 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
           <h3 className="font-display truncate text-lg font-bold tracking-tight" title={project.title}>
             {project.title}
           </h3>
-          <p className="mt-1 flex items-center gap-2 text-xs text-[var(--color-muted)]">
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--color-muted)]">
             <span className="font-mono">{project.id}</span>
             <span aria-hidden="true">·</span>
             <time dateTime={project.createdAt}>
@@ -144,7 +151,7 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
 
           <CopyButton value={viewerUrl} label="Copy link" />
 
-          {interactive && (
+          {interactive && onVisibilityChange && (
             <Link
               href={`/viewer/${project.id}?edit=1`}
               className="ring-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3 py-2 text-xs font-medium text-[var(--color-ink)] transition hover:border-[var(--color-line-strong)] hover:bg-[var(--color-surface-3)]"
@@ -161,7 +168,7 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
               <button
                 type="button"
                 onClick={handleDelete}
-                disabled={busy || savingVisibility}
+                disabled={busy || savingVisibility || savingThumbnail}
                 className="ring-focus rounded-lg bg-red-500/90 px-3 py-2 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
               >
                 {busy ? "Deleting…" : "Confirm"}
@@ -179,7 +186,7 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
             <button
               type="button"
               onClick={() => setConfirming(true)}
-              disabled={savingVisibility}
+              disabled={savingVisibility || savingThumbnail}
               aria-label={`Delete ${project.title}`}
               title="Delete model"
               className="ring-focus ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-muted)] transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
@@ -201,7 +208,7 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
               aria-checked={project.isPublic}
               aria-label={`Public visibility for ${project.title}`}
               title={project.isPublic ? "Hide model" : "Make model public"}
-              disabled={savingVisibility || busy}
+              disabled={savingVisibility || busy || savingThumbnail}
               onClick={() => void handleVisibilityChange()}
               className="ring-focus flex h-8 w-12 shrink-0 items-center justify-center rounded-md disabled:opacity-50"
             >
@@ -211,6 +218,8 @@ export function ProjectCard({ project, onDelete, onVisibilityChange }: ProjectCa
             </button>
           </div>
         )}
+        {onThumbnailChange && <ThumbnailEditor project={project} disabled={busy || savingVisibility || confirming}
+          onChange={onThumbnailChange} onBusyChange={setSavingThumbnail} />}
       </div>
     </article>
   );

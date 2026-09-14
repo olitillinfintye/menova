@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Scan } from "lucide-react";
 
 import { DeviceShowcase } from "@/app/components/DeviceShowcase";
 import { FormatBadge } from "@/app/components/FormatBadge";
@@ -6,6 +7,7 @@ import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import { Arrow, SiteNav } from "@/app/components/SiteNav";
 import { MAX_FILE_BYTES, MODEL_FORMATS, type ModelFormat, formatBytes } from "@/lib/constants";
 import { getSiteVideos } from "@/lib/site-media-db";
+import styles from "./home.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -104,35 +106,30 @@ export default async function HomePage() {
 
   return (
     <>
-      {/* ============================ LIGHT HERO ============================ */}
-      <div className="relative overflow-hidden bg-[var(--color-canvas)] text-[var(--color-ink)]">
-        <video
-          className="absolute inset-0 h-full w-full object-cover"
-          autoPlay muted loop playsInline preload="metadata"
-          aria-label="Archviz architectural interior walkthrough"
-          src={videos.home.url}
-        />
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/60" />
+      <div className={styles.hero} data-home-hero>
+        <div className={styles.scene} aria-hidden="true">
+          <img
+            src="https://images.unsplash.com/photo-1593508512255-86ab42a8e620?auto=format&fit=crop&w=1800&q=90"
+            alt=""
+            fetchPriority="high"
+            decoding="async"
+          />
+        </div>
 
         <SiteNav current="home" tone="dark" />
 
         <main className="relative mx-auto w-full max-w-6xl px-5 sm:px-8">
-          <section className="flex min-h-[min(36rem,68svh)] flex-col items-start justify-end pt-20 pb-12 sm:pb-16">
-            <p className="text-sm font-medium text-white/80">Architectural visualization</p>
-            <h1 className="font-display animate-fade-up mt-3 text-6xl leading-none font-bold sm:text-8xl">
-              Archviz
-            </h1>
-            <p className="animate-fade-up mt-5 max-w-lg text-lg leading-relaxed text-white/90 [animation-delay:80ms]">
-              Your architecture, experienced at full scale. From a shared model to a room you can step inside.
+          <section className={styles.composition} aria-labelledby="home-heading">
+            <div className={styles.copy}>
+            <p className={styles.brand}>Archviz. A new perspective.</p>
+            <div className={`${styles.headline} font-display animate-fade-up`}>
+              <p>Experience</p>
+              <h1 id="home-heading"><span>your next</span><span>home in 3D.</span></h1>
+            </div>
+            <p className={`${styles.intro} animate-fade-up [animation-delay:80ms]`}>
+              Step inside with VR. Bring it into your world with AR. Experience every space, from anywhere.
             </p>
-            <div className="animate-fade-up mt-7 flex flex-wrap items-center gap-3 [animation-delay:140ms]">
-              <Link
-                href="/dashboard"
-                className="ring-focus btn-slant accent-gradient inline-flex items-center gap-2 py-3.5 pl-6 text-sm font-semibold text-white transition hover:brightness-110"
-              >
-                Open workspace
-                <Arrow />
-              </Link>
+            <div className={`${styles.actions} animate-fade-up mt-7 flex flex-wrap items-center gap-3 [animation-delay:140ms]`}>
               <Link
                 href="#workflow"
                 className="ring-focus inline-flex items-center gap-2 rounded-md px-5 py-3.5 text-sm font-semibold text-white transition hover:text-[var(--color-accent)]"
@@ -141,7 +138,30 @@ export default async function HomePage() {
                 <Arrow className="h-3.5 w-3.5" />
               </Link>
             </div>
-            <p className="mt-8 text-xs text-white/65">Powered by Menova Studio</p>
+            <p className={`${styles.credit} mt-8 text-xs text-white/65`}>Powered by Menova Studio</p>
+            </div>
+            <div className={styles.visual}>
+              <div className={styles.phoneFloat} data-home-ar-phone>
+                <div className={styles.phone}>
+                  <div className={styles.screen}>
+                    <video
+                      src={videos.home.url}
+                      autoPlay muted loop playsInline preload="metadata"
+                      aria-label="Archviz architectural interior walkthrough"
+                    />
+                    <div className={styles.island} aria-hidden="true" />
+                    <div className={styles.phoneHeader} aria-hidden="true"><span>Archviz</span><span>AR VIEW</span></div>
+                    <div className={styles.reticle} aria-hidden="true"><span /></div>
+                    <p className={styles.phoneCaption} aria-hidden="true">Your space. In your world.</p>
+                    <div className={styles.homeBar} aria-hidden="true" />
+                  </div>
+                </div>
+                <div className={styles.phoneLabel}>
+                  <Scan size={21} aria-hidden="true" />
+                  <span>A new perspective<small>Mobile augmented reality</small></span>
+                </div>
+              </div>
+            </div>
           </section>
         </main>
       </div>

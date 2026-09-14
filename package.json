@@ -13,6 +13,7 @@
     "test:contact": "node --test scripts/test-contact.mjs",
     "test:admin": "node --test scripts/test-admin.mjs",
     "test:media": "node --test scripts/test-media.mjs",
+    "test:thumbnails": "node --test scripts/test-thumbnails.mjs",
     "android:assets": "node scripts/build-android-assets.mjs",
     "android:build": "node scripts/build-android.mjs"
   },

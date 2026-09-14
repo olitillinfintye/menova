@@ -97,7 +97,7 @@ export default function DashboardPage() {
     setLoadingProjects(true);
     setListError(null);
     try {
-      const response = await fetch("/api/projects", { cache: "no-store" });
+      const response = await fetch(embedded ? "/api/projects" : "/api/projects?public=1", { cache: "no-store" });
       if (!response.ok) {
         throw new Error(await readError(response, "Could not load your projects."));
       }
@@ -110,7 +110,7 @@ export default function DashboardPage() {
     } finally {
       setLoadingProjects(false);
     }
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
     void loadProjects();
@@ -118,7 +118,7 @@ export default function DashboardPage() {
 
   const startUpload = useCallback(
     async (file: File) => {
-      if (uploading) return;
+      if (!embedded || uploading) return;
 
       // ---- client-side gates ------------------------------------------------
       const format = getModelFormat(file.name);
@@ -209,7 +209,7 @@ export default function DashboardPage() {
         if (inputRef.current) inputRef.current.value = "";
       }
     },
-    [uploading],
+    [embedded, uploading],
   );
 
   const handleFileList = useCallback(
@@ -266,6 +266,11 @@ export default function DashboardPage() {
     }
   }, []);
 
+  function handleThumbnailChange(updated: Project) {
+    setProjects((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+    setLastUploaded((current) => current?.id === updated.id ? updated : current);
+  }
+
   const totalBytes = projects.reduce((sum, project) => sum + project.sizeBytes, 0);
   const formats = Object.keys(MODEL_FORMATS) as ModelFormat[];
 
@@ -277,16 +282,16 @@ export default function DashboardPage() {
       <WorkspaceElement className={embedded ? "w-full pb-12" : "mx-auto w-full max-w-6xl px-5 pt-10 pb-20 sm:px-8 lg:pt-14"}>
         <header className="animate-fade-up flex flex-wrap items-end justify-between gap-6">
           <div>
-            <span className="text-xs font-medium text-[var(--color-accent)]">Archviz workspace</span>
+            <span className="text-xs font-medium text-[var(--color-accent)]">{embedded ? "Archviz workspace" : "Archviz"}</span>
             <h1 className="font-display mt-3 text-3xl font-bold">
-              {embedded ? "Models" : "Projects"}
+              {embedded ? "Models" : "Library"}
             </h1>
             <p className="mt-2 max-w-lg text-sm text-[var(--color-muted)]">
               Powered by Menova Studio
             </p>
           </div>
 
-          <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-line)] text-sm">
+          {embedded && <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-line)] text-sm">
             {[
               { label: "Spaces", value: String(projects.length) },
               { label: "Stored", value: formatBytes(totalBytes) },
@@ -299,11 +304,11 @@ export default function DashboardPage() {
                 </dd>
               </div>
             ))}
-          </dl>
+          </dl>}
         </header>
 
         {/* ----------------------------- Dropzone ----------------------------- */}
-        <section aria-labelledby="upload-heading" className="animate-fade-up mt-10 [animation-delay:80ms]">
+        {embedded && <section aria-labelledby="upload-heading" className="animate-fade-up mt-10 [animation-delay:80ms]">
           <h2 id="upload-heading" className="sr-only">
             Upload a model
           </h2>
@@ -461,13 +466,13 @@ export default function DashboardPage() {
               </a>
             </div>
           )}
-        </section>
+        </section>}
 
         {/* --------------------------- Project grid --------------------------- */}
         <section aria-labelledby="projects-heading" className="animate-fade-up mt-14 [animation-delay:160ms]">
           <div className="flex items-center justify-between">
             <h2 id="projects-heading" className="font-display text-2xl font-bold tracking-tight">
-              Library
+              {embedded ? "Library" : "Spaces"}
             </h2>
             <button
               type="button"
@@ -514,7 +519,7 @@ export default function DashboardPage() {
               </span>
               <p className="font-display mt-5 text-xl font-bold">No spaces yet</p>
               <p className="mt-1 max-w-sm text-sm text-[var(--color-muted)]">
-                Upload a {FORMAT_LIST} model above to create your first walkthrough.
+                {embedded ? `Upload a ${FORMAT_LIST} model above to create your first walkthrough.` : "No published projects are available yet."}
               </p>
             </div>
           )}
@@ -527,6 +532,7 @@ export default function DashboardPage() {
                   project={project}
                   onDelete={embedded ? handleDelete : undefined}
                   onVisibilityChange={embedded ? handleVisibilityChange : undefined}
+                  onThumbnailChange={embedded ? handleThumbnailChange : undefined}
                 />
               ))}
             </div>

@@ -125,7 +125,8 @@ test("missing or weak configuration fails closed", () => {
 
 const { getAnalytics, getInquiries } = await import("../lib/admin-data.ts");
 const { PATCH, DELETE: deleteInquiry } = await import("../app/api/admin/contacts/route.ts");
-const { GET: getModels, PATCH: updateModel, DELETE: deleteModel } = await import("../app/api/projects/route.ts");
+const { GET: getModels, POST: registerModel, PATCH: updateModel, DELETE: deleteModel } = await import("../app/api/projects/route.ts");
+const { POST: uploadModel, GET: uploadReadiness } = await import("../app/api/upload/route.ts");
 const { POST: updatePassword } = await import("../app/api/admin/password/route.ts");
 const { POST: signIn, DELETE: signOut } = await import("../app/api/admin/session/route.ts");
 
@@ -159,11 +160,70 @@ test("model deletion requires admin even when anonymous model access is enabled"
   }
 });
 
+test("new model uploads and registration reject non-admins before accessing storage", async () => {
+  const previousAnonymous = process.env.ALLOW_ANONYMOUS;
+  const previousToken = process.env.MENOVA_API_TOKEN;
+  process.env.MENOVA_API_TOKEN = "model-upload-test-token-not-for-production";
+  const queryCount = sqlQueries.length;
+  try {
+    for (const anonymous of ["true", "false"]) {
+      process.env.ALLOW_ANONYMOUS = anonymous;
+      for (const authorization of [undefined, `Bearer ${process.env.MENOVA_API_TOKEN}`]) {
+        const headers = { Origin: "https://archviz.example", "Content-Type": "application/json" };
+        if (authorization) headers.Authorization = authorization;
+        assert.equal((await registerModel(new Request("https://archviz.example/api/projects", {
+          method: "POST", headers, body: "{}",
+        }))).status, 401);
+        assert.equal((await uploadModel(new Request("https://archviz.example/api/upload", {
+          method: "POST", headers,
+          body: JSON.stringify({ type: "blob.generate-client-token", payload: { pathname: "models/test.glb" } }),
+        }))).status, 401);
+        assert.equal((await uploadReadiness(new Request("https://archviz.example/api/upload", { headers }))).status, 401);
+      }
+    }
+    assert.equal(sqlQueries.length, queryCount);
+  } finally {
+    if (previousAnonymous === undefined) delete process.env.ALLOW_ANONYMOUS;
+    else process.env.ALLOW_ANONYMOUS = previousAnonymous;
+    if (previousToken === undefined) delete process.env.MENOVA_API_TOKEN;
+    else process.env.MENOVA_API_TOKEN = previousToken;
+  }
+});
+
 const { getSession } = await import("../lib/auth.ts");
 const credentials = await import("../lib/admin-credentials.ts");
 const { isAdmin } = await import("../lib/admin-auth.ts");
 const { getProject, listProjects } = await import("../lib/db.ts");
 const { default: ViewerPage, generateMetadata } = await import("../app/viewer/[id]/page.tsx");
+
+test("the public library is readable with anonymous uploads disabled and never exposes hidden models", async () => {
+  const previous = process.env.ALLOW_ANONYMOUS;
+  process.env.ALLOW_ANONYMOUS = "false";
+  process.env.POSTGRES_URL = "test-only";
+  const row = {
+    id: "proj_12345678", title: "Public library test", blob_url: "https://blob.example/library.glb",
+    blob_pathname: "library.glb", size_bytes: 128, created_at: "2026-09-14T00:00:00.000Z",
+    owner_id: "public", upload_ref: "library-test-upload", is_public: true, hotspots: [],
+  };
+  modelRows.set(row.id, row);
+  modelRows.set("proj_87654321", { ...row, id: "proj_87654321", is_public: false });
+  try {
+    const publicResponse = await getModels(new Request("https://archviz.example/api/projects?public=1"));
+    assert.equal(publicResponse.status, 200);
+    assert.deepEqual((await publicResponse.json()).projects.map(project => project.id), [row.id]);
+    const stored = await credentials.getAdminCredentials();
+    globalThis.adminTestCookie = auth.createAdminSession(stored.version);
+    const adminPublicResponse = await getModels(new Request("https://archviz.example/api/projects?public=1"));
+    assert.deepEqual((await adminPublicResponse.json()).projects.map(project => project.id), [row.id]);
+    const adminResponse = await getModels(new Request("https://archviz.example/api/projects"));
+    assert.equal((await adminResponse.json()).projects.length, 2);
+  } finally {
+    delete globalThis.adminTestCookie;
+    modelRows.clear();
+    if (previous === undefined) delete process.env.ALLOW_ANONYMOUS;
+    else process.env.ALLOW_ANONYMOUS = previous;
+  }
+});
 
 function modelRequest(body, headers = {}, id = "proj_12345678") {
   return new Request(`https://archviz.example/api/projects?id=${id}`, {

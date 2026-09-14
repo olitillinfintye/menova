@@ -14,7 +14,7 @@ Run `npm run android:build` to create `artifacts/archviz-debug.apk` for direct
 installation on Android 8.0+. The build also publishes `public/downloads/archviz.apk`
 for the website's **Download APK** button; build the APK before deploying the site.
 This APK is debug-signed for direct installation, not a Play Store release.
-Open Archviz leads to the workspace; Back to home returns to the main page.
+Open Archviz leads to the public library; Back to home returns to the main page.
 See [Android setup and limits](android/README.md). The app loads the hosted website
 and requires an internet connection.
 
@@ -32,13 +32,15 @@ and requires an internet connection.
 | Path                     | What it does                                                    |
 | ------------------------ | --------------------------------------------------------------- |
 | `/`                      | Landing page                                                     |
-| `/dashboard`             | Builder dashboard: drag-and-drop upload + project grid           |
+| `/dashboard`             | Public library of published projects, with no upload controls   |
 | `/viewer/{project_id}`   | Public walkthrough (the link you send a client)                  |
-| `POST /api/upload`       | Blob client-token handshake + `onUploadCompleted` webhook        |
-| `GET /api/projects`      | Project list for the dashboard                                   |
-| `POST /api/projects`     | Idempotent upload registration (localhost + webhook-race safe)   |
+| `POST /api/upload`       | Admin-only upload tokens + signed `onUploadCompleted` webhook    |
+| `GET /api/projects`      | Published projects; admins can also list hidden projects         |
+| `POST /api/projects`     | Admin-only idempotent upload registration                        |
 | `PATCH /api/projects`    | Updates hotspots (`{ hotspots }`) or admin-only visibility (`{ isPublic }`) |
 | `DELETE /api/projects`   | Admin-only: deletes the blob, then the row                       |
+| `/api/admin/thumbnails` | Admin-only thumbnail save (`PUT`) and removal (`DELETE`)         |
+| `POST /api/admin/thumbnails/upload` | Admin-only image upload tokens                        |
 
 ## Setup
 
@@ -63,8 +65,9 @@ See [`.env.example`](.env.example). The ones that matter most:
 
 - `BLOB_READ_WRITE_TOKEN`, `POSTGRES_URL` — provisioned by Vercel.
 - `AUTH_SECRET` — HMAC key for the session cookie (`openssl rand -hex 32`).
-- `ALLOW_ANONYMOUS=true` — development only. Treats every caller as the `public`
-  owner so the dashboard works before you wire up an identity provider.
+- `ALLOW_ANONYMOUS=true` — development only. Enables general model sessions for
+  legacy hotspot operations, but never grants admin or model upload permissions.
+  The public library and published viewer links do not require this setting.
 - `ALLOWED_ORIGINS` — comma-separated cross-site origins, or `*`. Empty means
   same-origin only.
 - `NEXT_PUBLIC_SITE_URL` — used to build shareable viewer links.
@@ -116,7 +119,7 @@ first creates the row while the other becomes a no-op returning the same record.
 - `/contact` collects a name, email, optional phone/company, and project requirements.
 - `/admin` shows actual enquiry counts, unique emails, model storage, monthly activity,
   enquiry statuses, and model formats. These are database metrics, not visitor tracking.
-- `/admin/models` provides model upload, share, hotspot, visibility, and delete controls.
+- `/admin/models` provides model upload, thumbnails, share, hotspot, visibility, and delete controls.
 - `/admin/videos` manages the homepage and devices videos independently, with previews,
   upload progress, saving, and restoration of the bundled default video.
 - `/admin/contacts` provides private search, status filters, pagination, email/phone links,
@@ -146,8 +149,19 @@ creates `contact_inquiries` and `request_limits` if needed. No additional servic
 required. The public contact endpoint is POST-only; enquiry reads and updates require
 the separate admin session even when `ALLOW_ANONYMOUS=true`. Admin model uploads use
 the existing shared `public` workspace owner. Set `ALLOW_ANONYMOUS=false` to disable
-anonymous access to model operations; public viewer links and the contact form remain
-available. The public workspace is not an admin login.
+anonymous access to general model mutations; the public library, published viewer links,
+and contact form remain available. The public library is not an admin login.
+
+Only admins can upload or register new models. The public library always requests
+`/api/projects?public=1`, so it excludes hidden models even for a signed-in admin.
+Signed Vercel Blob completion callbacks remain supported without browser cookies.
+
+Each admin model card can upload, preview, save, replace, or remove a thumbnail.
+Images accept JPG, PNG, or WebP up to 5 MB and upload directly to Vercel Blob.
+The server verifies the project-specific path, stored type, and actual file size
+before saving the trusted URL. The nullable `thumbnail_url` column is added on
+first use. Existing projects and failed image loads keep the generated cover.
+Replacing or removing a thumbnail retains earlier images in Blob storage.
 
 Only signed-in admins can delete models or change their visibility, even when anonymous
 model access is enabled. In `/admin/models`, each model has a **Public / Hidden** switch.
@@ -178,9 +192,9 @@ trusted client-address strategy before deployment. Neither raw IP addresses nor
 contact bodies are logged. Enquiries remain in the database until an operator removes
 them; define a retention policy appropriate to your business.
 
-Run `npm run test:contact`, `npm run test:admin`, `npm run test:media`, and `npm run build`
-to verify input validation, origin checks, throttling, private access, video settings,
-session expiry, and compilation.
+Run `npm run test:contact`, `npm run test:admin`, `npm run test:media`,
+`npm run test:thumbnails`, and `npm run build` to verify input validation, origin checks,
+throttling, private access, library visibility, media settings, session expiry, and compilation.
 
 ## XR presentation
 
