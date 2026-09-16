@@ -9,12 +9,21 @@ if (!modulePath || !process.env.ADMIN_PASSWORD) throw new Error("Configure Playw
 const { chromium } = await import(pathToFileURL(modulePath).href);
 const browser = await chromium.launch({ headless: true });
 const defaultUrl = "/media/3D_Interior_animation.mp4";
+const errors = [];
 await mkdir("artifacts/media-check", { recursive: true });
 try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
-  const errors = [];
+  page.setDefaultNavigationTimeout(90_000);
   page.on("pageerror", error => errors.push(error.message));
+  async function waitForHydratedInput(selector) {
+    await page.waitForFunction(selector => {
+      const input = document.querySelector(selector);
+      if (!input) return false;
+      const key = Object.keys(input).find(key => key.startsWith("__reactProps$"));
+      return Boolean(key && typeof input[key]?.onChange === "function");
+    }, selector);
+  }
   for (const [path, method, data] of [
     ["/api/admin/media", "GET"], ["/api/admin/media/upload", "POST", {}],
     ["/api/admin/homepage", "GET"], ["/api/admin/homepage", "PUT", {}],
@@ -25,11 +34,11 @@ try {
     const response = await context.request.fetch(`${origin}${path}`, { method, data, headers: { Origin: origin } });
     assert.equal(response.status(), 401);
   }
-  await page.goto(`${origin}/admin/videos`);
+  await page.goto(`${origin}/admin/videos`, { waitUntil: "domcontentloaded" });
   await page.waitForURL("**/admin/login");
-  await page.goto(`${origin}/admin/homepage`);
+  await page.goto(`${origin}/admin/homepage`, { waitUntil: "domcontentloaded" });
   await page.waitForURL("**/admin/login");
-  await page.goto(origin);
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => [...document.querySelectorAll("video")].length === 2 && [...document.querySelectorAll("video")].every(video => video.videoWidth > 0));
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -81,10 +90,11 @@ try {
     } else throw new Error("Unexpected media mutation in smoke test.");
     await route.fulfill({ json: { video: videos[body.slot] } });
   });
-  await page.goto(`${origin}/admin/videos`);
+  await page.goto(`${origin}/admin/videos`, { waitUntil: "domcontentloaded" });
   const home = page.getByRole("region", { name: "Homepage video", exact: true });
   const devices = page.getByRole("region", { name: "Devices video", exact: true });
   await home.getByRole("button", { name: "Choose video", exact: true }).waitFor();
+  await waitForHydratedInput("#home-video-file");
   const originalDevicesUrl = await devices.locator("video").getAttribute("src");
   const fixture = Buffer.from(await page.evaluate(async () => {
     const canvas = document.createElement("canvas");
@@ -188,7 +198,8 @@ try {
     }
     await route.fulfill({ json: publishedHomepage });
   });
-  await page.goto(`${origin}/admin/homepage`);
+  await page.goto(`${origin}/admin/homepage`, { waitUntil: "domcontentloaded" });
+  await waitForHydratedInput("#home-hero-brand");
   const editor = page.locator("main form");
   const firstHeading = editor.getByLabel("Heading, first line", { exact: true });
   const saveHomepage = editor.getByRole("button", { name: "Save homepage", exact: true });
@@ -269,7 +280,7 @@ try {
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ origin, publicAccessDenied: true, videosLoaded: true, independentSaves: true, saveRetry: true, defaultReset: true, homepageSaveAndConflict: true, homepageImageRetry: true, homepageDefaults: true, realMediaUnchanged: true, realHomepageUnchanged: true, widths: [1440, 390, 320], runtimeErrors: errors }));
 } catch (error) {
-  throw new Error(String(error?.message || error).replaceAll(process.env.ADMIN_PASSWORD, "[redacted]"));
+  throw new Error(`${String(error?.message || error)}\nRuntime errors: ${JSON.stringify(errors)}`.replaceAll(process.env.ADMIN_PASSWORD, "[redacted]"));
 } finally {
   await browser.close();
 }
