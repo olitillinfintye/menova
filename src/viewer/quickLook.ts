@@ -1,10 +1,15 @@
 import { Group, type Material, type Mesh, MeshStandardMaterial } from "three";
 
 export function supportsQuickLook(): boolean {
+  if (typeof document === "undefined") return false;
+  const iosBrowser = typeof navigator !== "undefined"
+    && (/iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))
+    && /CriOS\/|EdgiOS\/|FxiOS\/|DuckDuckGo\//.test(navigator.userAgent);
   try {
-    return document.createElement("a").relList.supports("ar");
+    return Boolean(document.createElement("a").relList?.supports?.("ar") || iosBrowser);
   } catch {
-    return false;
+    return iosBrowser;
   }
 }
 

@@ -50,6 +50,38 @@ test("Quick Look support uses the native AR link capability without requiring We
   }
 });
 
+test("Quick Look supports known iOS browsers that do not advertise AR links", () => {
+  const originalDocument = globalThis.document;
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  try {
+    globalThis.document = { createElement: () => ({ relList: { supports: () => false } }) };
+    for (const browser of ["CriOS/140", "FxiOS/140", "EdgiOS/140", "DuckDuckGo/7"]) {
+      for (const device of [
+        { userAgent: `Mozilla/5.0 (iPhone) ${browser}`, platform: "iPhone", maxTouchPoints: 5 },
+        { userAgent: `Mozilla/5.0 (Macintosh) ${browser}`, platform: "MacIntel", maxTouchPoints: 5 },
+      ]) {
+        Object.defineProperty(globalThis, "navigator", { configurable: true, value: device });
+        assert.equal(supportsQuickLook(), true, device.userAgent);
+      }
+    }
+    globalThis.document = { createElement: () => ({ relList: {} }) };
+    assert.equal(supportsQuickLook(), true);
+    for (const device of [
+      { userAgent: "Mozilla/5.0 (Android) Chrome/140", platform: "Linux", maxTouchPoints: 5 },
+      { userAgent: "Mozilla/5.0 (Macintosh) Chrome/140", platform: "MacIntel", maxTouchPoints: 0 },
+      { userAgent: "Mozilla/5.0 (iPhone) AppleWebKit/605.1", platform: "iPhone", maxTouchPoints: 5 },
+      { userAgent: "Mozilla/5.0 (iPhone) GSA/400", platform: "iPhone", maxTouchPoints: 5 },
+    ]) {
+      Object.defineProperty(globalThis, "navigator", { configurable: true, value: device });
+      assert.equal(supportsQuickLook(), false, device.userAgent);
+    }
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+    else delete globalThis.navigator;
+  }
+});
+
 test("Quick Look exports a metre-scale USDZ without the viewer transform or overlays", async () => {
   const viewerRoot = new Group();
   viewerRoot.scale.setScalar(0.02);
@@ -90,7 +122,8 @@ test("Quick Look rejects empty models instead of producing a blank AR asset", as
   await assert.rejects(exportQuickLook(new Group()), /no visible surfaces/);
 });
 
-function fixture() {
+function fixture(mode = "ar") {
+  let sessionMode = mode === "vr" ? "immersive-vr" : "immersive-ar";
   const scene = new Scene();
   const playerRig = new Group();
   const camera = new PerspectiveCamera();
@@ -105,7 +138,7 @@ function fixture() {
     hand.visible = false;
   }
   const controllers = [new Group(), new Group()];
-  const session = { environmentBlendMode: "alpha-blend", inputSources: [], end: async () => {} };
+  const session = { environmentBlendMode: mode === "vr" ? "opaque" : "alpha-blend", inputSources: [], end: async () => {} };
   const xr = {
     isPresenting: true,
     getHand: (index) => hands[index],
@@ -118,11 +151,13 @@ function fixture() {
   const changes = [];
   const notices = [];
   const core = new ArchPresentationCore({ renderer, scene, camera, playerRig, modelRoot,
+    getXrSessionMode: () => sessionMode,
     teleportSurfaces: [], onPlacementChange: (value) => changes.push(value),
     onNotice: (message) => notices.push(message) });
   core.onSessionStart();
-  core.setMode("ar", true);
-  return { core, scene, playerRig, camera, modelRoot, hands, controllers, session, xr, changes, notices };
+  if (mode === "ar") core.setMode("ar", true);
+  return { core, scene, playerRig, camera, modelRoot, hands, controllers, session, xr, changes, notices,
+    setSessionMode: (value) => { sessionMode = value; } };
 }
 
 function closeVector(actual, expected) {
@@ -214,21 +249,23 @@ test("MR room teleport moves the building, never the physical tracking rig", () 
   closeVector(modelRoot.localToWorld(core.entryPoint.clone()), anchor);
 });
 
-test("fingertip contact activates once until withdrawn and cannot also place", () => {
-  const { core, hands, controllers } = fixture();
+test("VR fingertip contact activates once until withdrawn and cannot also select", () => {
+  const { core, hands, controllers } = fixture("vr");
   const finger = new Group();
   hands[1].visible = true;
   hands[1].joints["index-finger-tip"] = finger;
   hands[1].add(finger);
   core.menuHand = hands[0];
   core.menuVisible = true;
-  const button = core.menuButtons.find((item) => item.action === "smaller");
+  const button = core.menuButtons.find((item) => item.action === "exit");
+  let activations = 0;
+  core.activateButton = () => { activations++; };
   const state = core.hands[1];
   finger.position.copy(button.root.getWorldPosition(new Vector3()));
   core.updateHandTouch(state);
-  assert.equal(core.getScale(), 0.8);
+  assert.equal(activations, 1);
   for (let frame = 0; frame < 20; frame++) core.updateHandTouch(state);
-  assert.equal(core.getScale(), 0.8);
+  assert.equal(activations, 1);
   core.reticlePoint = new Vector3(0, 0, -3);
   core.onSelectStart({ target: controllers[1] });
   core.onSelectEnd({ target: controllers[1] });
@@ -238,7 +275,7 @@ test("fingertip contact activates once until withdrawn and cannot also place", (
   core.touchBlockedUntil = 0;
   finger.position.z -= 0.1;
   core.updateHandTouch(state);
-  assert.equal(core.getScale(), 0.64);
+  assert.equal(activations, 2);
 });
 
 test("button corners are hittable without overlapping neighboring buttons", () => {
@@ -250,17 +287,104 @@ test("button corners are hittable without overlapping neighboring buttons", () =
   }
 });
 
-test("hand target-ray select activates a menu button without floor placement", () => {
-  const { core, controllers } = fixture();
-  const button = core.menuButtons.find((item) => item.action === "smaller");
+test("VR hand target-ray select activates a menu button", () => {
+  const { core, controllers } = fixture("vr");
+  const button = core.menuButtons.find((item) => item.action === "rooms");
   core.menu.visible = true;
   core.menuVisible = true;
   controllers[0].position.copy(button.root.getWorldPosition(new Vector3())).add(new Vector3(0, 0, 0.4));
   core.reticlePoint = new Vector3(0, 0, -2);
   core.onSelectStart({ target: controllers[0] });
   core.onSelectEnd({ target: controllers[0] });
-  assert.equal(core.getScale(), 0.8);
+  assert.equal(core.menuView, "rooms");
   assert.equal(core.isPlaced, false);
+});
+
+test("phone AR never displays or hits a controller menu, even with a gamepad source", () => {
+  const { core, session, controllers } = fixture();
+  session.inputSources = [{ targetRayMode: "screen", gamepad: {} }];
+  core.onControllerConnected({ target: controllers[0], data: session.inputSources[0] });
+  assert.equal(core.getInputMode(), "touch");
+  core.showControllerMenu();
+  assert.equal(core.menu.visible, false);
+  const button = core.menuButtons.find((item) => item.action === "rooms");
+  core.menuVisible = true;
+  core.menu.visible = true;
+  core.hoveredButton = button;
+  core.hands[0].touchedButton = button;
+  core.touchBlockedUntil = performance.now() + 1000;
+  controllers[0].position.copy(button.root.getWorldPosition(new Vector3())).add(new Vector3(0, 0, 0.4));
+  core.reticlePoint = new Vector3(0, 0, -2);
+  core.onSelectStart({ target: controllers[0] });
+  core.onSelectEnd({ target: controllers[0] });
+  assert.equal(core.isPlaced, true);
+  assert.equal(core.menu.visible, false);
+  assert.equal(core.hoveredButton, null);
+  assert.equal(core.menuView, "controls");
+});
+
+test("hand and controller menus are disabled in AR and non-immersive views", () => {
+  const { core, session, hands, xr, setSessionMode } = fixture();
+  session.inputSources = [{ targetRayMode: "tracked-pointer", gamepad: {}, hand: {} }];
+  core.menu.visible = true;
+  core.menuVisible = true;
+  core.updateWristMenu(hands[0]);
+  core.updateHandTouch(core.hands[1]);
+  core.activateButton(core.menuButtons.find((button) => button.action === "rooms"));
+  assert.equal(core.menu.visible, false);
+  assert.equal(core.menuView, "controls");
+  core.setMode("walkthrough", true);
+  setSessionMode("immersive-vr");
+  session.environmentBlendMode = "opaque";
+  session.inputSources = [{ targetRayMode: "tracked-pointer", gamepad: {} }];
+  core.showControllerMenu();
+  assert.equal(core.menu.visible, true);
+  xr.isPresenting = false;
+  core.update(0.016);
+  assert.equal(core.menu.visible, false);
+  assert.equal(core.menuVisible, false);
+});
+
+test("menu eligibility uses the requested session type, not the blend or presentation mode", () => {
+  const { core, session, setSessionMode } = fixture("vr");
+  session.inputSources = [{ targetRayMode: "tracked-pointer", gamepad: {} }];
+  session.environmentBlendMode = "alpha-blend";
+  core.showControllerMenu();
+  assert.equal(core.menu.visible, true);
+  setSessionMode("immersive-ar");
+  session.environmentBlendMode = "opaque";
+  core.showControllerMenu();
+  assert.equal(core.getMode(), "walkthrough");
+  assert.equal(core.menu.visible, false);
+  setSessionMode(null);
+  core.activateButton(core.menuButtons.find((button) => button.action === "rooms"));
+  assert.equal(core.menuView, "controls");
+});
+
+test("a tracked palm shows its wrist menu in VR and loses it immediately in AR", () => {
+  const { core, hands, session, setSessionMode } = fixture("vr");
+  const hand = hands[0];
+  hand.visible = true;
+  hand.userData.handedness = "left";
+  for (const [name, position] of [
+    ["wrist", [0, 1.3, -0.5]],
+    ["index-finger-metacarpal", [0.03, 1.4, -0.5]],
+    ["pinky-finger-metacarpal", [-0.03, 1.4, -0.5]],
+  ]) {
+    const joint = new Group();
+    joint.position.fromArray(position);
+    hand.joints[name] = joint;
+    hand.add(joint);
+  }
+  session.inputSources = [{ targetRayMode: "tracked-pointer", hand: {} }];
+  core.update(0.016);
+  assert.equal(core.menu.visible, true);
+  assert.equal(core.menuHand, hand);
+  assert.equal(core.getInputMode(), "hands");
+  setSessionMode("immersive-ar");
+  core.update(0.016);
+  assert.equal(core.menu.visible, false);
+  assert.equal(core.menuHand, null);
 });
 
 test("only the pointer owning a target can complete its selection", () => {
@@ -336,8 +460,8 @@ test("explicit placement requires a current floor hit", () => {
   assert.equal(core.floorDetected, false);
 });
 
-test("hand Rooms menu paginates all hotspots and teleports only after placement", () => {
-  const { core, modelRoot, camera, playerRig } = fixture();
+test("VR hand Rooms menu paginates hotspots and teleports the rig", () => {
+  const { core, modelRoot, camera, playerRig } = fixture("vr");
   const hotspots = Array.from({ length: 10 }, (_, index) => ({
     id: `room-${index}`, label: `Room ${index + 1}`, position: { x: index + 1, y: 0, z: -3 }, yaw: 0,
   }));
@@ -345,10 +469,6 @@ test("hand Rooms menu paginates all hotspots and teleports only after placement"
   core.activateButton(core.menuButtons.find((button) => button.action === "rooms"));
   assert.equal(core.menuButtons.filter((button) => button.hotspot).length, 4);
   const first = core.menuButtons.find((button) => button.hotspot);
-  const before = modelRoot.position.clone();
-  core.activateButton(first);
-  closeVector(modelRoot.position, before);
-  core.placeAt(new Vector3());
   core.activateButton(first);
   const feet = camera.getWorldPosition(new Vector3());
   feet.y = playerRig.position.y;
@@ -367,7 +487,7 @@ test("hand Rooms menu paginates all hotspots and teleports only after placement"
 });
 
 test("holding a fingertip through a Rooms page change does not activate the new button", () => {
-  const { core, hands } = fixture();
+  const { core, hands } = fixture("vr");
   core.setHotspots(Array.from({ length: 8 }, (_, index) => ({
     id: `room-${index}`, label: `Room ${index}`, position: { x: index, y: 0, z: -2 }, yaw: 0,
   })));

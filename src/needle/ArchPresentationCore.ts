@@ -40,6 +40,7 @@ export type InputMode = "hands" | "controllers" | "desktop" | "touch";
 
 export interface ArchPresentationOptions {
   renderer: WebGLRenderer;
+  getXrSessionMode?: () => XRSessionMode | null;
   scene: Scene;
   camera: PerspectiveCamera;
   /** Parent of the camera; represents the user's feet in world space. */
@@ -137,6 +138,7 @@ function easeInOutCubic(t: number): number {
  */
 export class ArchPresentationCore {
   private readonly renderer: WebGLRenderer;
+  private readonly getXrSessionMode: () => XRSessionMode | null;
   private readonly scene: Scene;
   private readonly camera: PerspectiveCamera;
   private readonly playerRig: Object3D;
@@ -231,6 +233,7 @@ export class ArchPresentationCore {
 
   constructor(options: ArchPresentationOptions) {
     this.renderer = options.renderer;
+    this.getXrSessionMode = options.getXrSessionMode ?? (() => null);
     this.scene = options.scene;
     this.camera = options.camera;
     this.playerRig = options.playerRig;
@@ -452,12 +455,16 @@ export class ArchPresentationCore {
 
     if (frame) this.updateHitTest(frame);
 
-    const handsTracked = this.updateHands();
-    if (!handsTracked) {
-      this.showControllerMenu();
-      if (this.mode === "walkthrough") this.updateThumbsticks(deltaSeconds);
-    } else if (this.inputMode !== "hands") {
-      this.setInputMode("hands");
+    if (this.isVrSession()) {
+      const handsTracked = this.updateHands();
+      if (!handsTracked) {
+        this.showControllerMenu();
+        if (this.mode === "walkthrough") this.updateThumbsticks(deltaSeconds);
+      } else if (this.inputMode !== "hands") {
+        this.setInputMode("hands");
+      }
+    } else {
+      this.hideMenu();
     }
     this.updateControllerRay();
   }
@@ -664,6 +671,10 @@ export class ArchPresentationCore {
 
   // =============================================================== hands
 
+  private isVrSession(): boolean {
+    return this.renderer.xr.isPresenting && this.getXrSessionMode() === "immersive-vr";
+  }
+
   private setupHands(): void {
     const factory = new XRHandModelFactory();
     for (let index = 0; index < 2; index += 1) {
@@ -723,6 +734,10 @@ export class ArchPresentationCore {
    * whereas the wrist/metacarpal triangle does not.
    */
   private updateWristMenu(hand: XRHandLike): void {
+    if (!this.isVrSession()) {
+      this.hideMenu();
+      return;
+    }
     const wrist = this.getJoint(hand, WRIST);
     const indexMeta = this.getJoint(hand, INDEX_METACARPAL);
     const pinkyMeta = this.getJoint(hand, PINKY_METACARPAL);
@@ -781,13 +796,22 @@ export class ArchPresentationCore {
   }
 
   private hideMenu(): void {
-    if (!this.menu || !this.menuVisible) return;
-    this.menu.visible = false;
+    if (this.menu) this.menu.visible = false;
     this.menuVisible = false;
-    for (const state of this.hands) state.touchedButton = null;
+    this.menuHand = null;
+    this.hoveredButton = null;
+    this.touchBlockedUntil = 0;
+    for (const state of this.hands) {
+      state.touchedButton = null;
+      state.releasePoint = null;
+    }
   }
 
   private updateHandTouch(state: HandState): void {
+    if (!this.isVrSession()) {
+      this.hideMenu();
+      return;
+    }
     const indexTip = this.getJoint(state.object, INDEX_TIP);
     if (!indexTip || !this.menuVisible || state.object === this.menuHand) {
       state.touchedButton = null;
@@ -824,6 +848,7 @@ export class ArchPresentationCore {
   }
 
   private activateButton(button: MenuButton): void {
+    if (!this.isVrSession()) return;
     switch (button.action) {
       case "rooms":
         this.menuView = "rooms";
@@ -862,9 +887,12 @@ export class ArchPresentationCore {
   }
 
   private showControllerMenu(): void {
-    if (!this.menu) return;
+    if (!this.menu || !this.isVrSession()) {
+      this.hideMenu();
+      return;
+    }
     const sources = this.renderer.xr.getSession()?.inputSources;
-    if (!sources || !Array.from(sources).some((source) => source.gamepad && !source.hand)) {
+    if (!sources || !Array.from(sources).some((source) => source.targetRayMode === "tracked-pointer" && source.gamepad && !source.hand)) {
       this.hideMenu();
       return;
     }
@@ -973,9 +1001,7 @@ export class ArchPresentationCore {
   private readonly onControllerConnected = (event: { target?: unknown; data?: XRInputSource }) => {
     const controller = event.target as XRControllerLike | undefined;
     if (controller) controller.userData.source = event.data;
-    // A hand-tracked input source also produces a controller object; only
-    // physical controllers should switch the input mode.
-    if (event.data && !event.data.hand) this.setInputMode("controllers");
+    this.detectInputMode();
   };
 
   private readonly onControllerDisconnected = (event: { target?: unknown }) => {
@@ -989,6 +1015,7 @@ export class ArchPresentationCore {
   };
 
   private readonly onSelectStart = (event: { target?: unknown }) => {
+    if (!this.isVrSession()) this.hideMenu();
     if (performance.now() < this.touchBlockedUntil
       || this.hands.some((hand) => hand.touchedButton)) return;
     const controller = event.target as XRControllerLike | undefined;
@@ -1039,6 +1066,7 @@ export class ArchPresentationCore {
    * priority, then walkable floor for teleporting.
    */
   private updateControllerRay(): void {
+    if (!this.isVrSession()) this.hideMenu();
     this.clearTeleportTarget();
     if (this.controllerSelecting.size === 0) {
       return;
@@ -1057,7 +1085,7 @@ export class ArchPresentationCore {
     this.raycaster.set(this.rayOrigin, this.rayDirection);
     this.raycaster.far = 40;
 
-    if (this.menuVisible && this.menu) {
+    if (this.isVrSession() && this.menuVisible && this.menu) {
       this.menu.updateWorldMatrix(true, true);
       const menuHit = this.raycaster.intersectObjects(this.menuButtons.map((button) => button.mesh), false)[0];
       this.hoveredButton = this.menuButtons.find((button) => button.mesh === menuHit?.object) ?? null;
@@ -1266,12 +1294,16 @@ export class ArchPresentationCore {
     if (this.renderer.xr.isPresenting) {
       const session = this.renderer.xr.getSession();
       const sources = session ? Array.from(session.inputSources) : [];
-      if (sources.some((source) => source.hand)) {
+      if (this.isVrSession() && sources.some((source) => source.hand)) {
         this.setInputMode("hands");
         return;
       }
-      if (sources.length > 0) {
+      if (this.isVrSession() && sources.some((source) => source.targetRayMode === "tracked-pointer" && source.gamepad)) {
         this.setInputMode("controllers");
+        return;
+      }
+      if (sources.some((source) => source.targetRayMode === "screen")) {
+        this.setInputMode("touch");
         return;
       }
     }

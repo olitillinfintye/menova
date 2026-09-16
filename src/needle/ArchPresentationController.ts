@@ -106,6 +106,7 @@ export class ArchPresentationController extends Behaviour {
 
     this.core = new ArchPresentationCore({
       renderer,
+      getXrSessionMode: () => this.context.xrSessionMode ?? null,
       scene,
       camera,
       playerRig: this.resolvePlayerRig(camera, scene),

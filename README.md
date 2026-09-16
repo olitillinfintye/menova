@@ -228,11 +228,28 @@ hotspot doubles as the MR entrance point. In MR, selecting a hotspot translates
 the building so that hotspot lands at the user's physical feet, without rotating
 or moving the tracked rig.
 
+### iPhone and iPad AR
+
+Supported iOS browsers use Apple AR Quick Look instead of requiring WebXR.
+Once the model loads, the viewer prepares a metre-scale USDZ automatically;
+**View in your space** is then a native `rel="ar"` link with a single image
+child, activated directly by the user's tap. Failed preparation offers **Retry AR**.
+Quick Look detection also covers known iOS Chrome, Firefox, Edge and DuckDuckGo
+browsers that do not advertise AR-link support. Unsupported embedded browsers
+should open the viewer in Safari.
+
+Quick Look provides its own placement and scaling controls. Viewer hotspots,
+the hand menu and dollhouse transforms are excluded from the export. The USDZ
+object URL is released when the viewer closes. Native camera placement must be
+verified on a physical iPhone or iPad; browser simulations only check export and
+launch behavior.
+
 ### Floor-First Mixed Reality
 
-**Mixed Reality · Room Scale** and **View in your space** start `immersive-ar`
-with required `local-floor` and `hit-test`, plus optional hand tracking and DOM
-overlay. The model starts hidden at a requested 1:1 scale. An upward-facing hit
+On WebXR-capable browsers, **Mixed Reality · Room Scale** and **View in your space**
+start `immersive-ar` with required `local-floor` and `hit-test`, plus optional DOM
+overlay. Hand tracking is requested only for `immersive-vr`.
+The model starts hidden at a requested 1:1 scale. An upward-facing hit
 within 30cm of the runtime's calibrated floor shows a placement reticle; walls
 and tables are rejected. Aim at the floor and pinch/trigger, tap the phone screen,
 or use **Place model** once **Floor detected** appears. Placement is explicit and
@@ -240,12 +257,15 @@ does not follow subsequent gaze movement. No floor support means no silent
 placement at guessed coordinates.
 
 The entrance is the first hotspot, falling back to the centred model origin.
-Use the phone slider or wrist-menu **-**/**+** buttons to scale from 2% to 200%;
+Use the on-screen slider to scale from 2% to 200%;
 **1:1** restores 100%. Scaling keeps the entrance anchored, including after a
 room teleport. **Re-place** hides the model and requires a fresh floor hit.
 The HUD cancels `beforexrselect` so its buttons cannot also place or teleport.
 
-**Palm menu.** The palm normal is derived geometrically from the wrist, index
+**VR-only palm menu.** Wrist and floating controller menus are visible and
+interactive only during `immersive-vr`, using the requested session type rather
+than background blending or presentation mode. AR, desktop and touch views
+clear menu targets and cannot activate menu buttons. The palm normal is derived geometrically from the wrist, index
 metacarpal and pinky metacarpal joints — `(index − wrist) × (pinky − wrist)` for
 a left hand, operands swapped for a right — rather than from a joint's own axes,
 because joint-space conventions vary between runtimes while that triangle does
@@ -257,7 +277,7 @@ from the last touch before another press. A short debounce prevents
 touches from becoming duplicate ray selections. The menu offers MR, VR walk,
 scale down/up, 1:1, re-placement, exit, and **Rooms**. Rooms shows four saved
 hotspots per page with previous/next controls. Touch a room or select it with a
-hand/controller ray to teleport; MR requires floor placement first. Physical controllers get a floating
+hand/controller ray to teleport in VR. Physical controllers get a floating
 ray-selectable menu. Three.js primitive hand models provide visible hand feedback.
 
 **Fallback chain.** Hand tracking → Quest controllers (left thumbstick walks

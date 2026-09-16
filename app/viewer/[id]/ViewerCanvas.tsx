@@ -243,6 +243,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
 
     // ------------------------------------------------------ XR plumbing
     let currentSession: XRSession | null = null;
+    let currentSessionMode: XrSessionMode | null = null;
 
     const endSession = async () => {
       if (currentSession) await currentSession.end().catch(() => undefined);
@@ -254,7 +255,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
 
       const optionalFeatures = [
         "bounded-floor",
-        "hand-tracking",
+        ...(mode === "immersive-vr" ? ["hand-tracking"] : []),
         "layers",
         ...(options.overlayRoot ? ["dom-overlay"] : []),
       ];
@@ -266,8 +267,10 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
       });
 
       currentSession = session;
+      currentSessionMode = mode;
       session.addEventListener("end", () => {
         currentSession = null;
+        currentSessionMode = null;
         propsRef.current.onXrPresentingChange(false);
       });
 
@@ -355,6 +358,7 @@ export default function ViewerCanvas(props: ViewerCanvasProps) {
 
         presentation = new ArchPresentationCore({
           renderer,
+          getXrSessionMode: () => currentSessionMode,
           scene,
           camera,
           playerRig,

@@ -109,7 +109,7 @@ export default async function HomePage() {
       <div className={styles.hero} data-home-hero>
         <div className={styles.scene} aria-hidden="true">
           <img
-            src="https://images.unsplash.com/photo-1593508512255-86ab42a8e620?auto=format&fit=crop&w=1800&q=90"
+            src="/media/archviz-ethiopian-vr.webp"
             alt=""
             fetchPriority="high"
             decoding="async"

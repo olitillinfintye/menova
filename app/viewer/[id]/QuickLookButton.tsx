@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ViewerApi } from "@/app/viewer/[id]/ViewerCanvas";
 
 interface QuickLookButtonProps {
@@ -12,48 +12,55 @@ interface QuickLookButtonProps {
 
 export function QuickLookButton({ api, title, className, onError }: QuickLookButtonProps) {
   const [url, setUrl] = useState<string | null>(null);
-  const [preparing, setPreparing] = useState(false);
+  const [preparing, setPreparing] = useState(true);
+  const [attempt, setAttempt] = useState(0);
 
-  const prepare = async () => {
-    if (preparing) return;
+  useEffect(() => {
+    let active = true;
     setPreparing(true);
-    try {
-      setUrl(await api.prepareQuickLook());
-    } catch (error) {
-      onError(error instanceof Error
+    setUrl(null);
+    void api.prepareQuickLook().then((result) => {
+      if (active) setUrl(result);
+    }).catch((error: unknown) => {
+      if (active) onError(error instanceof Error
         ? `Could not prepare iPhone AR: ${error.message}`
         : "Could not prepare iPhone AR. Try a smaller GLB model.");
-    } finally {
-      setPreparing(false);
-    }
-  };
+    }).finally(() => {
+      if (active) setPreparing(false);
+    });
+    return () => { active = false; };
+  }, [api, attempt, onError]);
 
   if (url) {
     return (
-      <a
-        rel="ar"
-        href={url}
-        download={`${title.replace(/[^a-z0-9-_]+/gi, "-") || "model"}.usdz`}
-        className={className}
-        title="Open Apple AR Quick Look"
-      >
+      <span className={`${className} relative`}>
         <img src="/brand/archviz-mark.png" width={16} height={16} alt="" />
-        View in your space
-      </a>
+        <span aria-hidden="true">View in your space</span>
+        <a
+          rel="ar"
+          href={url}
+          download={`${title.replace(/[^a-z0-9-_]+/gi, "-") || "model"}.usdz`}
+          className="ring-focus absolute inset-0 rounded-[inherit]"
+          aria-label="View in your space"
+          title="Open Apple AR Quick Look"
+        >
+          <img src="/brand/archviz-mark.png" width={16} height={16} alt="" className="h-full w-full opacity-0" />
+        </a>
+      </span>
     );
   }
 
   return (
     <button
       type="button"
-      onClick={() => void prepare()}
+      onClick={() => setAttempt((value) => value + 1)}
       disabled={preparing}
       aria-busy={preparing}
       className={className}
       title="Prepare model for Apple AR Quick Look"
     >
       <img src="/brand/archviz-mark.png" width={16} height={16} alt="" />
-      {preparing ? "Preparing AR..." : "Prepare AR"}
+      {preparing ? "Preparing AR..." : "Retry AR"}
     </button>
   );
 }
