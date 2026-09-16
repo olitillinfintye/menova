@@ -6,6 +6,7 @@ import { FormatBadge } from "@/app/components/FormatBadge";
 import { LogoLockup, LogoMark } from "@/app/components/Logo";
 import { Arrow, SiteNav } from "@/app/components/SiteNav";
 import { MAX_FILE_BYTES, MODEL_FORMATS, type ModelFormat, formatBytes } from "@/lib/constants";
+import { getHomeContent } from "@/lib/site-content-db";
 import { getSiteVideos } from "@/lib/site-media-db";
 import styles from "./home.module.css";
 
@@ -32,57 +33,6 @@ const DEVICES = [
   },
 ];
 
-const SOLUTIONS = [
-  {
-    title: "The yes that holds",
-    body: "Help clients understand scale, flow and feel before decisions become expensive.",
-    tag: "Design validation",
-  },
-  {
-    title: "Send it home",
-    body: "A walkable presentation clients can revisit, share and experience after the meeting.",
-    tag: "Client presentations",
-  },
-  {
-    title: "Campaign-ready visuals",
-    body: "Turn one model into accurate 4K renders and content for every stage of the sale.",
-    tag: "Marketing assets",
-  },
-  {
-    title: "Walk every design",
-    body: "A virtual display home for every design, without the build cost.",
-    tag: "Display homes",
-  },
-  {
-    title: "Sell before it stands",
-    body: "Give buyers the confidence to understand, share and commit before construction begins.",
-    tag: "Off-plan sales",
-  },
-];
-
-const WORKFLOW = [
-  {
-    number: "01",
-    title: "Start with your files",
-    body: `Export from Revit, ArchiCAD, SketchUp, 3ds Max or Blender as .glb, .fbx or .skp. Up to ${formatBytes(MAX_FILE_BYTES)} per model.`,
-  },
-  {
-    number: "02",
-    title: "Your Space comes to life",
-    body: "Your project becomes a walkable home clients can open on mobile, tablet, browser or headset.",
-  },
-  {
-    number: "03",
-    title: "Share it where decisions happen",
-    body: "Send a link, open it in a meeting, walk through it remotely or use it for sign-off.",
-  },
-  {
-    number: "04",
-    title: "Create visual assets on demand",
-    body: "Capture 4K renders from any viewpoint, straight from the browser, whenever you need them.",
-  },
-];
-
 function Icon({ children, className = "h-6 w-6" }: { children: React.ReactNode; className?: string }) {
   return (
     <svg
@@ -101,15 +51,29 @@ function Icon({ children, className = "h-6 w-6" }: { children: React.ReactNode; 
 }
 
 export default async function HomePage() {
-  const videos = await getSiteVideos();
+  const [videos, { content }] = await Promise.all([getSiteVideos(), getHomeContent()]);
   const formats = Object.keys(MODEL_FORMATS) as ModelFormat[];
+  const solutions = ([1, 2, 3, 4, 5] as const).map((number) => ({
+    title: content.solutions[`card${number}Title`],
+    body: content.solutions[`card${number}Body`],
+    tag: content.solutions[`card${number}Tag`],
+  }));
+  const workflow = ([1, 2, 3, 4] as const).map((number) => ({
+    number: String(number).padStart(2, "0"),
+    title: content.workflow[`step${number}Title`],
+    body: content.workflow[`step${number}Body`],
+  }));
+  const footerLinks = ([1, 2, 3, 4, 5, 6] as const).map((number) => ({
+    label: content.footer[`link${number}Label`],
+    href: content.footer[`link${number}Href`],
+  }));
 
   return (
     <>
       <div className={styles.hero} data-home-hero>
         <div className={styles.scene} aria-hidden="true">
           <img
-            src="/media/archviz-ethiopian-vr.webp"
+            src={content.hero.imageUrl}
             alt=""
             fetchPriority="high"
             decoding="async"
@@ -121,24 +85,24 @@ export default async function HomePage() {
         <main className="relative mx-auto w-full max-w-6xl px-5 sm:px-8">
           <section className={styles.composition} aria-labelledby="home-heading">
             <div className={styles.copy}>
-            <p className={styles.brand}>Archviz. A new perspective.</p>
+            <p className={styles.brand}>{content.hero.brand}</p>
             <div className={`${styles.headline} font-display animate-fade-up`}>
-              <p>Experience</p>
-              <h1 id="home-heading"><span>your next</span><span>home in 3D.</span></h1>
+              <p>{content.hero.lead}</p>
+              <h1 id="home-heading"><span>{content.hero.heading}</span><span>{content.hero.headingEnd}</span></h1>
             </div>
             <p className={`${styles.intro} animate-fade-up [animation-delay:80ms]`}>
-              Step inside with VR. Bring it into your world with AR. Experience every space, from anywhere.
+              {content.hero.body}
             </p>
             <div className={`${styles.actions} animate-fade-up mt-7 flex flex-wrap items-center gap-3 [animation-delay:140ms]`}>
               <Link
-                href="#workflow"
+                href={content.hero.buttonHref}
                 className="ring-focus inline-flex items-center gap-2 rounded-md px-5 py-3.5 text-sm font-semibold text-white transition hover:text-[var(--color-accent)]"
               >
-                See how it works
+                {content.hero.buttonLabel}
                 <Arrow className="h-3.5 w-3.5" />
               </Link>
             </div>
-            <p className={`${styles.credit} mt-8 text-xs text-white/65`}>Powered by Menova Studio</p>
+            <p className={`${styles.credit} mt-8 text-xs text-white/65`}>{content.hero.credit}</p>
             </div>
             <div className={styles.visual}>
               <div className={styles.phoneFloat} data-home-ar-phone>
@@ -147,18 +111,18 @@ export default async function HomePage() {
                     <video
                       src={videos.home.url}
                       autoPlay muted loop playsInline preload="metadata"
-                      aria-label="Archviz architectural interior walkthrough"
+                      aria-label={content.hero.videoLabel}
                     />
                     <div className={styles.island} aria-hidden="true" />
-                    <div className={styles.phoneHeader} aria-hidden="true"><span>Archviz</span><span>AR VIEW</span></div>
+                    <div className={styles.phoneHeader} aria-hidden="true"><span>{content.hero.phoneBrand}</span><span>{content.hero.phoneMode}</span></div>
                     <div className={styles.reticle} aria-hidden="true"><span /></div>
-                    <p className={styles.phoneCaption} aria-hidden="true">Your space. In your world.</p>
+                    <p className={styles.phoneCaption} aria-hidden="true">{content.hero.phoneCaption}</p>
                     <div className={styles.homeBar} aria-hidden="true" />
                   </div>
                 </div>
                 <div className={styles.phoneLabel}>
                   <Scan size={21} aria-hidden="true" />
-                  <span>A new perspective<small>Mobile augmented reality</small></span>
+                  <span>{content.hero.phoneLabel}<small>{content.hero.phoneDescription}</small></span>
                 </div>
               </div>
             </div>
@@ -167,19 +131,18 @@ export default async function HomePage() {
       </div>
 
       {/* =========================== NAVY SECTIONS ========================== */}
-      <div className="relative bg-[var(--color-canvas)] text-[var(--color-ink)]">
+      <div className={`${styles.content} relative bg-[var(--color-canvas)] text-[var(--color-ink)]`}>
         <div aria-hidden="true" className="bg-grid pointer-events-none absolute inset-0" />
 
         <main className="relative mx-auto w-full max-w-6xl px-5 sm:px-8">
           {/* --------------------------- devices ---------------------------- */}
           <section id="devices" className="animate-fade-up scroll-mt-24 pt-16 pb-20 [animation-delay:220ms] sm:pt-20">
-            <DeviceShowcase src={videos.devices.url}>
+            <DeviceShowcase src={videos.devices.url} title={content.devices.previewTitle} caption={content.devices.previewCaption}>
               <h2 className="font-display max-w-md text-3xl leading-[1.1] font-bold tracking-tight sm:text-4xl">
-                Complete clarity, everywhere decisions happen.
+                {content.devices.heading}
               </h2>
               <p className="mt-4 max-w-md text-base leading-relaxed text-[var(--color-muted)]">
-                Walk the home in VR. Review it on tablet. Share it by browser. Reopen it on mobile.
-                One link, no installs.
+                {content.devices.body}
               </p>
             </DeviceShowcase>
 
@@ -188,20 +151,19 @@ export default async function HomePage() {
           <section id="solutions" className="scroll-mt-24 py-24">
             <div className="grid gap-10 lg:grid-cols-[1fr_1.5fr] lg:items-end">
               <h2 className="font-display text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl">
-                One Space.
+                {content.solutions.heading}
                 <br />
-                <span className="text-highlight">Five ways</span> to close the gap.
+                <span className="text-highlight">{content.solutions.highlight}</span> {content.solutions.headingEnd}
               </h2>
               <p className="max-w-xl text-base leading-relaxed text-[var(--color-muted)] lg:justify-self-end">
-                From sign-off to sales, Archviz turns your existing 3D models into walkable experiences
-                your clients can understand, share and decide from.
+                {content.solutions.body}
               </p>
             </div>
 
             <ul className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              {SOLUTIONS.map((solution, index) => (
+              {solutions.map((solution, index) => (
                 <li
-                  key={solution.title}
+                  key={index}
                   className={`card group flex flex-col justify-between rounded-2xl p-5 transition duration-300 hover:-translate-y-1 hover:border-[var(--color-accent)]/60 ${
                     index === 0 ? "sm:col-span-2 lg:col-span-1" : ""
                   }`}
@@ -214,10 +176,10 @@ export default async function HomePage() {
                     <p className="mt-3 text-sm leading-relaxed text-[var(--color-muted)]">{solution.body}</p>
                   </div>
                   <Link
-                    href="/dashboard"
+                    href={content.solutions.buttonHref}
                     className="ring-focus mt-8 inline-flex items-center gap-1.5 rounded-md text-sm font-semibold text-[var(--color-ink)] transition group-hover:text-[var(--color-lavender)]"
                   >
-                    Open card
+                    {content.solutions.buttonLabel}
                     <Arrow className="h-3.5 w-3.5" />
                   </Link>
                 </li>
@@ -227,30 +189,29 @@ export default async function HomePage() {
 
           {/* --------------------------- workflow --------------------------- */}
           <section id="workflow" className="scroll-mt-24 pb-24">
-            <span className="eyebrow">The workflow</span>
+            <span className="eyebrow">{content.workflow.eyebrow}</span>
             <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
               <div>
                 <h2 className="font-display text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl">
-                  From what you have.
+                  {content.workflow.heading}
                   <br />
-                  <span className="text-highlight">To what they can walk through.</span>
+                  <span className="text-highlight">{content.workflow.highlight}</span>
                 </h2>
                 <p className="mt-6 max-w-md text-base leading-relaxed text-[var(--color-muted)]">
-                  Upload a 3D model and Archviz turns it into a walkable space your clients can open,
-                  share and decide from — with renders created from the same source.
+                  {content.workflow.body}
                 </p>
                 <Link
-                  href="/dashboard"
+                  href={content.workflow.buttonHref}
                   className="ring-focus btn-slant mt-8 inline-flex items-center gap-2 bg-[var(--color-accent)] py-3 pl-5 text-sm font-semibold text-white transition hover:brightness-110"
                 >
-                  Get Started
+                  {content.workflow.buttonLabel}
                   <Arrow />
                 </Link>
               </div>
 
               <div className="min-w-0 border-t border-[var(--color-line)] pt-8">
                 <ol className="space-y-8">
-                  {WORKFLOW.map((step, index) => (
+                  {workflow.map((step, index) => (
                     <li key={step.number} className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[3rem_minmax(0,1fr)]">
                       <span className="font-display text-sm font-bold text-[var(--color-accent-strong)]">
                         {step.number}
@@ -314,13 +275,12 @@ export default async function HomePage() {
           <section id="formats" className="scroll-mt-24 pb-24">
             <div className="grid gap-10 lg:grid-cols-[1fr_1.4fr]">
               <div>
-                <span className="eyebrow">Bring your own pipeline</span>
+                <span className="eyebrow">{content.formats.eyebrow}</span>
                 <h2 className="font-display mt-6 text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl">
-                  glTF, FBX <span className="text-highlight">or SketchUp.</span>
+                  {content.formats.heading} <span className="text-highlight">{content.formats.highlight}</span>
                 </h2>
                 <p className="mt-6 max-w-md text-base leading-relaxed text-[var(--color-muted)]">
-                  Draco, Meshopt and KTX2 compression are decoded on the fly, and FBX units are
-                  normalised to metres so 1:1 mode stays true to scale.
+                  {content.formats.body}
                 </p>
               </div>
 
@@ -332,22 +292,22 @@ export default async function HomePage() {
                       <FormatBadge format={format} className="mt-1 h-fit" />
                       <div className="min-w-0">
                         <p className="flex flex-wrap items-center gap-2 text-base font-semibold">
-                          {meta.label}
+                          {content.formats[`${format}Label`]}
                           <span className="font-mono text-xs font-normal text-[var(--color-muted)]">
                             {meta.extension}
                           </span>
                           {meta.walkthrough ? (
                             <span className="rounded-full bg-[var(--color-mint)]/15 px-2 py-0.5 text-[10px] font-medium text-[var(--color-mint)]">
-                              Interactive walkthrough
+                              {content.formats.interactiveLabel}
                             </span>
                           ) : (
                             <span className="rounded-full bg-[var(--color-lavender)]/15 px-2 py-0.5 text-[10px] font-medium text-[var(--color-lavender)]">
-                              Stored &amp; shareable
+                              {content.formats.storedLabel}
                             </span>
                           )}
                         </p>
                         <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-muted)]">
-                          {meta.description}
+                          {content.formats[`${format}Description`]}
                         </p>
                       </div>
                     </li>
@@ -367,18 +327,18 @@ export default async function HomePage() {
               <div className="relative">
                 <LogoMark className="mx-auto h-14 w-14" />
                 <h2 className="font-display mt-6 text-4xl leading-[1.05] font-bold tracking-tight sm:text-5xl">
-                  Close the imagination gap
+                  {content.callToAction.heading}
                   <br />
-                  on your next project.
+                  {content.callToAction.headingEnd}
                 </h2>
                 <p className="mx-auto mt-4 max-w-md text-base text-[var(--color-navy-muted)]">
-                  Every step of your visualisation needs in one place.
+                  {content.callToAction.body}
                 </p>
                 <Link
-                  href="/dashboard"
+                  href={content.callToAction.buttonHref}
                   className="ring-focus btn-slant mt-9 inline-flex items-center gap-2 bg-[var(--color-navy)] py-3.5 pl-6 text-sm font-semibold text-white transition hover:brightness-125"
                 >
-                  Get Started
+                  {content.callToAction.buttonLabel}
                   <Arrow />
                 </Link>
               </div>
@@ -391,24 +351,16 @@ export default async function HomePage() {
             <div>
               <LogoLockup className="h-12 w-auto" />
               <p className="mt-4 max-w-xs text-sm leading-relaxed text-[var(--color-muted)]">
-                Web-based architectural visualisation. Upload a model, share a link, walk the space
-                on desktop, mobile or Meta Quest.
+                {content.footer.body}
               </p>
             </div>
             <div>
               <p className="text-xs font-semibold tracking-[0.14em] text-[var(--color-lavender)] uppercase">
-                Product
+                {content.footer.productHeading}
               </p>
               <ul className="mt-4 space-y-2.5 text-sm text-[var(--color-muted)]">
-                {[
-                  ["Solutions", "/#solutions"],
-                  ["Workflow", "/#workflow"],
-                  ["Formats", "/#formats"],
-                  ["Dashboard", "/dashboard"],
-                  ["Contact us", "/contact"],
-                  ["Admin", "/admin"],
-                ].map(([label, href]) => (
-                  <li key={href}>
+                {footerLinks.map(({ label, href }, index) => (
+                  <li key={index}>
                     <Link href={href} className="ring-focus rounded transition hover:text-[var(--color-ink)]">
                       {label}
                     </Link>
@@ -418,22 +370,22 @@ export default async function HomePage() {
             </div>
             <div>
               <p className="text-xs font-semibold tracking-[0.14em] text-[var(--color-lavender)] uppercase">
-                Have questions?
+                {content.footer.contactHeading}
               </p>
               <p className="mt-4 text-sm leading-relaxed text-[var(--color-muted)]">
-                Archviz is a product by Menova Studio, built for architectural presentations.
+                {content.footer.contactBody}
               </p>
               <Link
-                href="/contact"
+                href={content.footer.contactHref}
                 className="ring-focus mt-4 inline-flex items-center gap-1.5 rounded text-sm font-semibold text-[var(--color-ink)] transition hover:text-[var(--color-lavender)]"
               >
-                Contact us
+                {content.footer.contactLabel}
                 <Arrow className="h-3.5 w-3.5" />
               </Link>
             </div>
           </div>
           <div className="mx-auto max-w-6xl px-5 pb-8 text-xs text-[var(--color-muted)] sm:px-8">
-            © {new Date().getFullYear()} Menova Studio. Archviz · Architectural visualization.
+            © {new Date().getFullYear()} {content.footer.copyright}
           </div>
         </footer>
       </div>

@@ -46,6 +46,11 @@
   position: relative;
   z-index: 2;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.content {
+  overflow-wrap: anywhere;
 }
 
 .brand {
@@ -175,9 +180,11 @@
   color: white;
   font-size: 10px;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .phoneHeader span:last-child {
+  min-width: 0;
   padding: 4px 6px;
   border: 1px solid #f0ffff60;
   border-radius: 4px;
@@ -222,6 +229,7 @@
   text-align: center;
   font-size: 9px;
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .homeBar {
@@ -265,6 +273,11 @@
   color: #95bac5;
   font-size: 9px;
   font-weight: 400;
+}
+
+.phoneLabel > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 @keyframes phone-hover {

@@ -120,6 +120,8 @@ first creates the row while the other becomes a no-op returning the same record.
 - `/admin` shows actual enquiry counts, unique emails, model storage, monthly activity,
   enquiry statuses, and model formats. These are database metrics, not visitor tracking.
 - `/admin/models` provides model upload, thumbnails, share, hotspot, visibility, and delete controls.
+- `/admin/homepage` edits homepage text, links, solution cards, workflow steps, and the
+  hero image, with draft changes, explicit publishing, and restoration of the defaults.
 - `/admin/videos` manages the homepage and devices videos independently, with previews,
   upload progress, saving, and restoration of the bundled default video.
 - `/admin/contacts` provides private search, status filters, pagination, email/phone links,
@@ -183,6 +185,20 @@ Homepage requests load the latest saved selections without a rebuild. Both secti
 the bundled video until a custom video is saved. Restoring a default does not delete
 previous uploads from Blob storage. The admin page reports storage failures; the public
 homepage falls back to the bundled video when settings cannot be loaded.
+
+Homepage content uses the same database connection in an automatically created
+`site_content` table. **Save homepage** publishes all seven sections together; subsequent
+homepage requests show the saved content without a rebuild. Concurrent edits are checked
+by revision, so an older editor cannot silently overwrite a newer save. Public reads
+fall back to the original content on storage failure; the admin editor reports failures
+and retains its draft. Restoring defaults leaves video selections unchanged.
+
+Hero images accept a site path, an HTTPS URL, or a JPG, PNG, or WebP upload up to 5 MB.
+Uploads are staged until Save and their stored metadata is verified before publication.
+Replaced images remain in Blob storage. Homepage reads, saves, restores, and upload-token
+endpoints under `/api/admin/homepage` require an admin session; mutations also reject
+cross-site requests. Content is rendered as plain text, with bounded fields and validated
+links. Supported model formats and technical upload limits remain application settings.
 
 Submissions have server-side field/body limits, parameterized SQL, duplicate protection,
 and a hidden spam trap. Login and contact requests are limited to ten attempts per

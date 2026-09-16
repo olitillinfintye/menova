@@ -17,6 +17,8 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   for (const [path, method, data] of [
     ["/api/admin/media", "GET"], ["/api/admin/media/upload", "POST", {}],
+    ["/api/admin/homepage", "GET"], ["/api/admin/homepage", "PUT", {}],
+    ["/api/admin/homepage", "DELETE", {}], ["/api/admin/homepage/upload", "POST", {}],
     ["/api/projects?id=proj_12345678", "DELETE"],
     ["/api/projects?id=proj_12345678", "PATCH", { isPublic: false }],
   ]) {
@@ -24,6 +26,8 @@ try {
     assert.equal(response.status(), 401);
   }
   await page.goto(`${origin}/admin/videos`);
+  await page.waitForURL("**/admin/login");
+  await page.goto(`${origin}/admin/homepage`);
   await page.waitForURL("**/admin/login");
   await page.goto(origin);
   await page.waitForFunction(() => [...document.querySelectorAll("video")].length === 2 && [...document.querySelectorAll("video")].every(video => video.videoWidth > 0));
@@ -139,8 +143,131 @@ try {
   assert.equal(await devices.locator("video").getAttribute("src"), `${defaultUrl}?smoke=devices`);
   const persisted = await context.request.get(`${origin}/api/admin/media`);
   assert.equal((await persisted.json()).videos.devices.url, originalDevicesUrl);
+
+  const homepageResponse = await context.request.get(`${origin}/api/admin/homepage`);
+  assert.equal(homepageResponse.status(), 200);
+  const originalHomepage = await homepageResponse.json();
+  let publishedHomepage = structuredClone(originalHomepage);
+  let failHomepageSave = true;
+  let homepageImagePath;
+  let homepageImageUploads = 0;
+  await page.route("**/api/admin/homepage/upload", async route => {
+    const { payload } = route.request().postDataJSON();
+    homepageImagePath = payload.pathname;
+    const clientToken = await generateClientTokenFromReadWriteToken({
+      token: "vercel_blob_rw_smoketest_fake-secret", pathname: homepageImagePath,
+      allowedContentTypes: ["image/png"], maximumSizeInBytes: 5 * 1024 * 1024,
+      addRandomSuffix: true, allowOverwrite: false,
+    });
+    await route.fulfill({ json: { type: "blob.generate-client-token", clientToken } });
+  });
+  await page.route(url => url.hostname.endsWith("vercel-storage.com") || (url.hostname === "vercel.com" && url.pathname.startsWith("/api/blob")), async route => {
+    if (route.request().method() === "GET") return route.continue();
+    const headers = { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "PUT, POST, OPTIONS" };
+    if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    homepageImageUploads += 1;
+    await route.fulfill({ headers, json: { url: `${origin}${originalHomepage.content.hero.imageUrl}`, pathname: homepageImagePath, contentType: "image/png", contentDisposition: "inline" } });
+  });
+  await page.route("**/api/admin/homepage", async route => {
+    const method = route.request().method();
+    if (method === "GET") return route.fulfill({ json: publishedHomepage });
+    const body = route.request().postDataJSON();
+    if (method === "PUT" && failHomepageSave) {
+      failHomepageSave = false;
+      return route.fulfill({ status: 503, json: { error: "Test homepage save unavailable." } });
+    }
+    if (body.revision !== publishedHomepage.revision) return route.fulfill({ status: 409, json: { error: "The homepage changed in another session." } });
+    assert.ok(method === "PUT" || method === "DELETE");
+    publishedHomepage = {
+      content: method === "DELETE" ? structuredClone(originalHomepage.content) : body.content,
+      revision: publishedHomepage.revision + 1, updatedAt: new Date().toISOString(),
+    };
+    if (body.imageUpload) {
+      assert.equal(body.imageUpload.pathname, homepageImagePath);
+      publishedHomepage.content.hero.imageUrl = `${originalHomepage.content.hero.imageUrl}?smoke=homepage`;
+    }
+    await route.fulfill({ json: publishedHomepage });
+  });
+  await page.goto(`${origin}/admin/homepage`);
+  const editor = page.locator("main form");
+  const firstHeading = editor.getByLabel("Heading, first line", { exact: true });
+  const saveHomepage = editor.getByRole("button", { name: "Save homepage", exact: true });
+  await firstHeading.fill("A home you can explore");
+  await editor.getByRole("tab", { name: "Devices", exact: true }).click();
+  await editor.getByLabel("Heading", { exact: true }).fill("Everywhere you work");
+  await editor.getByRole("tab", { name: "Hero", exact: false }).click();
+  assert.equal(await firstHeading.inputValue(), "A home you can explore");
+  await saveHomepage.click();
+  await editor.getByRole("alert").filter({ hasText: "Test homepage save unavailable." }).waitFor();
+  assert.equal(await firstHeading.inputValue(), "A home you can explore");
+  await saveHomepage.click();
+  await editor.getByRole("status").filter({ hasText: "Homepage saved." }).waitFor();
+  assert.equal(publishedHomepage.content.devices.heading, "Everywhere you work");
+  await firstHeading.fill("Discard this draft");
+  await editor.getByRole("button", { name: "Discard changes", exact: true }).click();
+  assert.equal(await firstHeading.inputValue(), "A home you can explore");
+  await editor.getByLabel("Button link", { exact: true }).fill("javascript:alert(1)");
+  await editor.getByRole("tab", { name: "Devices", exact: false }).click();
+  await saveHomepage.click();
+  await editor.getByRole("alert").filter({ hasText: "must be a site path" }).waitFor();
+  assert.equal(await editor.getByLabel("Button link", { exact: true }).getAttribute("aria-invalid"), "true");
+  await editor.getByLabel("Button link", { exact: true }).fill("/contact");
+  await saveHomepage.click();
+  await editor.getByRole("status").filter({ hasText: "Homepage saved." }).waitFor();
+  await firstHeading.fill("Keep this draft");
+  publishedHomepage = { ...publishedHomepage, revision: publishedHomepage.revision + 1,
+    content: { ...publishedHomepage.content, hero: { ...publishedHomepage.content.hero, heading: "Concurrent edit" } } };
+  await saveHomepage.click();
+  await editor.getByRole("alert").filter({ hasText: "another session" }).waitFor();
+  assert.equal(await firstHeading.inputValue(), "Keep this draft");
+  await editor.getByRole("button", { name: "Reload latest content", exact: true }).click();
+  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await firstHeading.inputValue(), "Keep this draft");
+  await editor.getByRole("button", { name: "Reload latest content", exact: true }).click();
+  await editor.getByRole("button", { name: "Reload content", exact: true }).click();
+  await editor.getByRole("status").filter({ hasText: "Latest content loaded." }).waitFor();
+  assert.equal(await firstHeading.inputValue(), "Concurrent edit");
+  const imageInput = editor.getByLabel("Choose homepage image", { exact: true });
+  await imageInput.setInputFiles({ name: "invalid.svg", mimeType: "image/svg+xml", buffer: Buffer.from("invalid") });
+  await editor.getByRole("alert").filter({ hasText: "Choose a JPG, PNG, or WebP image." }).waitFor();
+  const imageData = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 240;
+    canvas.height = 160;
+    const drawing = canvas.getContext("2d");
+    drawing.fillStyle = "#238a78";
+    drawing.fillRect(0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await imageInput.setInputFiles({ name: "homepage.png", mimeType: "image/png", buffer: Buffer.from(imageData, "base64") });
+  assert.ok((await editor.getByAltText("Homepage background preview").getAttribute("src")).startsWith("blob:"));
+  failHomepageSave = true;
+  await saveHomepage.click();
+  await editor.getByRole("alert").filter({ hasText: "Test homepage save unavailable." }).waitFor();
+  assert.equal(homepageImageUploads, 1);
+  await saveHomepage.click();
+  await editor.getByRole("status").filter({ hasText: "Homepage saved." }).waitFor();
+  assert.equal(homepageImageUploads, 1, "Retrying a homepage save must reuse the staged image upload.");
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const name of ["Hero", "Devices", "Solutions", "Workflow", "Formats", "Call to Action", "Footer"]) {
+      await editor.getByRole("tab", { name, exact: true }).click();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${name} must fit at ${width}px`);
+    }
+    await editor.getByRole("tab", { name: "Hero", exact: true }).click();
+    await page.screenshot({ path: `artifacts/media-check/homepage-editor-${width}.png`, fullPage: true, animations: "disabled" });
+  }
+  await editor.getByRole("button", { name: "Restore defaults", exact: true }).click();
+  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await firstHeading.inputValue(), "Concurrent edit");
+  await editor.getByRole("button", { name: "Restore defaults", exact: true }).click();
+  await editor.getByRole("button", { name: "Restore homepage", exact: true }).click();
+  await editor.getByRole("status").filter({ hasText: "Default homepage restored." }).waitFor();
+  assert.equal(await firstHeading.inputValue(), originalHomepage.content.hero.heading);
+  const homepageAfter = await context.request.get(`${origin}/api/admin/homepage`);
+  assert.deepEqual(await homepageAfter.json(), originalHomepage, "Browser smoke tests must not publish real homepage edits.");
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ origin, publicAccessDenied: true, videosLoaded: true, independentSaves: true, saveRetry: true, defaultReset: true, realMediaUnchanged: true, widths: [1440, 390, 320], runtimeErrors: errors }));
+  console.log(JSON.stringify({ origin, publicAccessDenied: true, videosLoaded: true, independentSaves: true, saveRetry: true, defaultReset: true, homepageSaveAndConflict: true, homepageImageRetry: true, homepageDefaults: true, realMediaUnchanged: true, realHomepageUnchanged: true, widths: [1440, 390, 320], runtimeErrors: errors }));
 } catch (error) {
   throw new Error(String(error?.message || error).replaceAll(process.env.ADMIN_PASSWORD, "[redacted]"));
 } finally {
